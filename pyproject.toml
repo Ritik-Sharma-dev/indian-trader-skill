@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "indian-trader"
+version = "0.3.0"
+description = "Market data, analytics, a team of research and decision agents, and an MCP server for intraday trading on NSE / BSE. Never places orders."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = []          # standard library only
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Environment :: Console",
+]
+
+[project.optional-dependencies]
+dev = ["pyflakes"]
+
+[project.scripts]
+indtrader = "indtrader.cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["indtrader*"]
+
+[tool.ruff]
+line-length = 160          # data tables (URLs, regexes, CSS) and report format strings
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

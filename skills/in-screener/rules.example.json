@@ -1,0 +1,14 @@
+{
+  "name": "Liquid F&O stocks in an uptrend, not overbought",
+  "rules": [
+    {"metric": "fo", "op": "==", "value": true},
+    {"metric": "traded_value_cr", "op": ">=", "value": 100},
+    {"metric": "vs_ema50", "op": ">", "value": 0},
+    {"metric": "rsi", "op": "between", "value": [50, 70]}
+  ],
+  "rank": [
+    {"metric": "ret_20d", "order": "desc", "weight": 2},
+    {"metric": "delivery_pct", "order": "desc", "weight": 1}
+  ],
+  "missing": "fail"
+}

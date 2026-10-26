@@ -115,7 +115,7 @@ class TestPlan(WorkspaceTest):
         instrument = self.read("plan.json")["instrument"]
         self.assertEqual(instrument["tradingsymbol"], "NIFTY 27OCT26 22700 CE")
         premium = instrument["premium"]
-        self.assertEqual((instrument["lot"], premium["entry"], premium["stop"], premium["target"]), (65, 181.0, 128.75, 277.75))
+        self.assertEqual((instrument["lot"], premium["entry"], premium["stop"], premium["target"]), (65, 181.0, 128.75, 277.7))
         self.assertEqual(premium["market_premium"], 160.30)        # repriced from spot 22687.65 to the entry 22725.70
         self.assertEqual(instrument["risk_per_lot"], 3396.25)
 

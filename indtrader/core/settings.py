@@ -43,6 +43,7 @@ DEFAULTS: Settings = {
         "min_gap_pct": 0.2,             # flat opens (|gap| < 0.2 %): -5.1R on 38 trades
         "trades_per_day": 1,            # the day's second signal: -5.5R on 28 trades
         "context_refresh_min": 15,      # option chain / flows / global mood re-read at most this often
+        "rules_chosen_through": "2026-10-23",
     },
     # the clock (IST)
     "no_entries_before": "09:30",       # let the opening range form
@@ -58,6 +59,7 @@ DEFAULTS: Settings = {
     "min_option_delta": 0.25,           # below this is a lottery ticket
     "max_option_spread_pct": 3.0,       # bid-ask spread as % of the premium
     "min_option_oi": 500,               # open interest, contracts
+    "max_spot_parity_gap_pct": 0.5,
     "warn_vix_above": 20,
     "block_on_results_day": False,      # True = block, False = warn only
     # models

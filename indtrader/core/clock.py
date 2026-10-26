@@ -23,6 +23,10 @@ PREOPEN = dt.time(9, 0)
 OPEN = dt.time(9, 15)
 CLOSE = dt.time(15, 30)
 SESSION_MINUTES = 375
+AUCTION_FROM = dt.date(2026, 8, 3)
+FO_CONTINUOUS_END = dt.time(15, 15)
+AUCTION_CLOSE = dt.time(15, 35)
+DERIVATIVES_CLOSE = dt.time(15, 40)
 
 # NSE F&O / capital-market trading holidays 2026 (NSE holiday master).
 HOLIDAYS_2026: Dict[str, str] = {
@@ -56,6 +60,8 @@ def holidays() -> Dict[str, str]:
     global _holidays
     if _holidays is None:
         cached = read_json(settings.path("cache", "holidays.json"), {}) or {}
+        if not cached.get("holidays") and now_ist().year > 2026:
+            log.warning("no NSE holiday list for %d: run `it.py refresh`", now_ist().year)
         merged = dict(HOLIDAYS_2026)
         merged.update(cached.get("holidays", {}))
         _holidays = merged
@@ -169,8 +175,11 @@ def market_status(now: dt.datetime) -> dict:
     elif t < OPEN:
         out.update(state="pre-open", reason="pre-open session (orders 09:00-09:08, matching to 09:15)")
     elif t < CLOSE:
-        out.update(state="open", reason="normal market",
+        auction = has_closing_auction(day) and t >= FO_CONTINUOUS_END
+        out.update(state="open", reason="normal market; F&O stocks are in the closing auction" if auction else "normal market",
                    minutes_to_close=int((at(day, CLOSE) - now).total_seconds() // 60))
+    elif t < derivatives_close(day):
+        out.update(state="closed", reason="cash market closed; equity derivatives trade until %s" % hm(derivatives_close(day)))
     else:
         out.update(state="closed", reason="after the close")
     if out["state"] == "open":
@@ -216,9 +225,17 @@ def monthly_expiry(symbol: str, day: dt.date) -> dt.date:
     raise DataError("could not work out the monthly expiry for %s" % symbol)
 
 
+def has_closing_auction(day: dt.date) -> bool:
+    return day >= AUCTION_FROM
+
+
+def derivatives_close(day: dt.date) -> dt.time:
+    return DERIVATIVES_CLOSE if has_closing_auction(day) else CLOSE
+
+
 def expiry_close(expiry_date: dt.date) -> dt.datetime:
-    """Options expire at the close, 15:30 IST."""
-    return at(expiry_date, CLOSE)
+    """Options expire at the derivatives close."""
+    return at(expiry_date, derivatives_close(expiry_date))
 
 
 def years_to(expiry_dt: dt.datetime, now: dt.datetime) -> float:

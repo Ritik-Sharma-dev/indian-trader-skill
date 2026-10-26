@@ -53,7 +53,7 @@ Ops: `>`, `>=`, `<`, `<=`, `==`, `!=`, `between` ([low, high]), `in`, `not in`. 
 
 ## Ground rules (all Indian Trader skills)
 
-- Run commands from the project folder (`E:\Orbantis Technologies Projects\Trading`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
+- Run commands from the project folder (the one that contains `Indian Trader Skill`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
 - All times are IST. Output files go to `Indian Trader Skill/workspace/`.
 - There is **no broker connection**. Nothing here can place a real order.
 - Data is free and unofficial (NSE website APIs, Yahoo Finance). It can lag or fail; say so when it does and never invent numbers.

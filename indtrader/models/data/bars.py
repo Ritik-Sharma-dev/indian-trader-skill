@@ -60,6 +60,21 @@ def aggregate(session: List[dict]) -> dict:
             "c": session[-1]["c"], "v": sum(b["v"] for b in session), "filled": True}
 
 
+def mark_closing_auction(bars: List[dict]) -> int:
+    """Flag the closing-auction bars (``auction: True``); returns how many were flagged."""
+    flagged = 0
+    for bar in bars:
+        moment = bar["t"]
+        if moment.time() >= clock.FO_CONTINUOUS_END and clock.has_closing_auction(moment.date()):
+            bar["auction"] = True
+            flagged += 1
+    return flagged
+
+
+def continuous(bars: List[dict]) -> List[dict]:
+    return [b for b in bars if not b.get("auction")]
+
+
 def trim_wicks(bars: List[dict], k: float = 8.0, floor_pct: float = 0.3) -> int:
     """Cut back fake auction wicks; returns how many were trimmed.
 

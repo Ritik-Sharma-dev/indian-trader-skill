@@ -2,7 +2,7 @@
 
 from typing import Dict, List
 
-from indtrader.core.formatting import inr, num, pct, table
+from indtrader.core.formatting import inr, num, pct, strike, table
 from indtrader.models.agents.smart_money.tracker import directional_deals
 
 
@@ -39,7 +39,7 @@ def options(result: dict) -> str:
             num(vix["last"]), vix["percentile_1y"], num(vix["low_1y"]), num(vix["high_1y"])))
     lines.append("Expected move: about +/- %s points today, +/- %s to expiry" % (num(result["day_move"], 0), num(result["expected_move_to_expiry"], 0)))
     for key, title in (("calls", "CALLS (buy on a bullish signal)"), ("puts", "PUTS (buy on a bearish signal)")):
-        rows = [[c["choice"], num(c["strike"], 0), num(c["premium"]), inr(c.get("cost_per_lot"), 0), num(c["delta_abs"]),
+        rows = [[c["choice"], strike(c["strike"]), num(c["premium"]), inr(c.get("cost_per_lot"), 0), num(c["delta_abs"]),
                  num(c.get("spread_pct"), 1) + "%", c.get("oi") or 0, num(c["theta_hour"]), num(c["breakeven_pts"], 1), "%d/4" % c["score"]]
                 for c in result[key]]
         lines += ["", title]
@@ -48,7 +48,7 @@ def options(result: dict) -> str:
         pick = result.get(key)
         if pick:
             lines.append("Best %s: %s %s %s at about %s (%s a lot), delta %s; the index must move %s points in 30 minutes to cover spread and decay" % (
-                word, result["symbol"], num(pick["strike"], 0), pick["kind"], num(pick["premium"]), inr(pick.get("cost_per_lot"), 0),
+                word, result["symbol"], strike(pick["strike"]), pick["kind"], num(pick["premium"]), inr(pick.get("cost_per_lot"), 0),
                 num(pick["delta_abs"]), num(pick["breakeven_pts"], 1)))
     lines += ["- " + note for note in result["notes"]]
     lines += ["note: " + error for error in result["errors"]]
@@ -64,11 +64,12 @@ def picks(result: dict) -> str:
     for key, title in (("longs", "LONG watchlist (calls / buy on a bullish setup)"), ("shorts", "SHORT watchlist (puts / sell on a bearish setup)")):
         lines += ["", title]
         if not result[key]:
-            lines.append("  none with two or more reasons")
+            lines.append("  none scoring 2 points or more")
             continue
         side = key[:-1]
-        lines.append(table([[r["symbol"], num(r["last"]), pct(r["change_pct"]), pct(r["rs_20d"]), r["buildup"] or "-", "; ".join(r[side])]
-                            for r in result[key]], ["Symbol", "Last", "Today", "RS 20d", "Futures OI", "Why"], "lrrrll"))
+        lines.append(table([[r["symbol"], num(r["last"]), pct(r["change_pct"]), pct(r["rs_20d"]), r["buildup"] or "-",
+                             num(r.get(side + "_points")), "; ".join(r[side]) or "-"]
+                            for r in result[key]], ["Symbol", "Last", "Today", "RS 20d", "Futures OI", "Points", "Why"], "lrrrlrl"))
     lines += ["note: " + error for error in result["errors"]]
     lines.append("A watchlist for `scan orb` and the entry timer, not trades. OI buildup is today's, from NSE's top OI changes only.")
     return "\n".join(lines)
@@ -111,7 +112,7 @@ def risk(result: dict) -> str:
     option = result.get("option") or {}
     if result["risk_per_lot"]:
         lines.append("Typical NIFTY trade: stop about %s index points; one lot of %s %s risks about %s (charges included)" % (
-            num(result["typical_risk_points"], 0), num(option.get("strike"), 0), option.get("kind", ""), inr(result["risk_per_lot"], 0)))
+            num(result["typical_risk_points"], 0), strike(option.get("strike")), option.get("kind", ""), inr(result["risk_per_lot"], 0)))
         lines.append("Lots allowed now: %s (max loss per trade %s, max lots %d, at most %s%% of %s capital in one trade)" % (
             result["lots_allowed"], inr(limits["max_loss_per_trade"], 0), limits["max_lots_per_trade"], limits["max_capital_per_trade_pct"],
             inr(limits["capital"], 0)))

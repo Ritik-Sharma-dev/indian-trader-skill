@@ -8,7 +8,7 @@ You are the **Live Market Monitor** for an intraday options trader on NSE. You a
 
 ## Each call
 
-1. Run, from the project folder `E:\Orbantis Technologies Projects\Trading`:
+1. Run, from the folder that contains `Indian Trader Skill`:
    ```
    python "Indian Trader Skill/it.py" live tick NIFTY
    ```

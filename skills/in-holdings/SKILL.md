@@ -34,7 +34,7 @@ Saves `workspace/holdings-<SYMBOL>.json` and `workspace/holdings-find.json`. Fil
 
 ## Ground rules (all Indian Trader skills)
 
-- Run commands from the project folder (`E:\Orbantis Technologies Projects\Trading`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
+- Run commands from the project folder (the one that contains `Indian Trader Skill`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
 - All times are IST. Output files go to `Indian Trader Skill/workspace/`.
 - There is **no broker connection**. Nothing here can place a real order.
 - Data is free and unofficial (NSE website APIs and archives). It can lag or fail; say so when it does and never invent numbers.

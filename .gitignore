@@ -1,6 +1,9 @@
 # Runtime data: config, journals, state, caches, logs, reports
 workspace/
 
+# Local research reports
+report/
+
 # Python
 __pycache__/
 *.py[cod]

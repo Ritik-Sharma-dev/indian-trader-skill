@@ -8,7 +8,7 @@ from argparse import Namespace
 from indtrader.core import clock, settings
 from indtrader.core.context import AppContext
 from indtrader.core.errors import IndianTraderError
-from indtrader.core.formatting import inr, num, pct, print_json, table
+from indtrader.core.formatting import inr, num, pct, print_json, strike, table
 from indtrader.core.storage import read_json, write_json
 from indtrader.models.agents.global_news.desk import GlobalDesk
 from indtrader.models.agents.market_analyst.pulse import MarketPulse
@@ -95,7 +95,7 @@ def chain(args: Namespace, ctx: AppContext) -> int:
     picked = analysis.get("pick")
     if picked:
         print("\nPicked %s %s %s: premium %s (bid %s / ask %s, spread %s%%), delta %s, IV %s, theta %s/day, OI %s%s" % (
-            picked["symbol"], num(picked["strike"], 0), picked["kind"], num(picked["premium"]), num(picked["bid"]), num(picked["ask"]),
+            picked["symbol"], strike(picked["strike"]), picked["kind"], num(picked["premium"]), num(picked["bid"]), num(picked["ask"]),
             num(picked["spread_pct"], 1), num(picked["delta"]), ("%.1f%%" % (picked["iv"] * 100)) if picked["iv"] else "-",
             num(picked["theta"]), picked["oi"], ("; one lot costs " + inr(picked["cost_per_lot"])) if picked.get("cost_per_lot") else ""))
     print("\nSaved %s" % path)

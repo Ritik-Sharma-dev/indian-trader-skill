@@ -3,15 +3,18 @@ reacting to, and policy / regulation updates."""
 
 import datetime as dt
 import logging
+import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from indtrader.core import settings
+from indtrader.core import clock, settings
 from indtrader.core.errors import IndianTraderError
 from indtrader.core.storage import read_json
 from indtrader.models.agents.india_news import tagging
 from indtrader.models.agents.india_news.sources import IndiaNewsSources
-from indtrader.models.analytics.news import SeenStore, enrich, mention_patterns, within
+from indtrader.models.analytics.news import (NewsArchive, SeenStore, between, enrich, foreign_namesake, market_context, mention_patterns,
+                                             name_terms, other_security, publisher)
+from indtrader.models.data.symbols import is_index
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +31,25 @@ class NewsQuery:
     only_mine: bool = False
     limit: int = 40
     with_moves: bool = True
+    since: Optional[dt.date] = None
+    until: Optional[dt.date] = None
+
+
+def company_relevance(items: List[dict], terms: Dict[str, List[str]]) -> List[dict]:
+    """Untag stories a ticker does not earn: the company's own pages, headlines about another listed
+    code, and one-word-name matches with no market words."""
+    for ticker, names in terms.items():
+        lowered = [n.lower() for n in names]
+        phrases = [re.escape(n) for n in names if " " in n]
+        specific = re.compile(r"\b(%s)\b" % "|".join(phrases), re.I) if phrases else None
+        for item in items:
+            if ticker not in item["tickers"] or item.get("source") == "NSE filing":
+                continue
+            title = item["title"]
+            if (publisher(item).lower() in lowered or other_security(title, ticker) or foreign_namesake(title, names + [ticker])
+                    or not ((specific and specific.search(title)) or market_context(title))):
+                item["tickers"] = [t for t in item["tickers"] if t != ticker]
+    return [it for it in items if it["tickers"] or not it.get("origin")]
 
 
 class NewsDesk:
@@ -62,19 +84,48 @@ class NewsDesk:
                 log.info("no quote for %s: %s", ticker, exc)
         return out
 
+    def name_terms(self, tickers: List[str]) -> Dict[str, List[str]]:
+        """The names each ticker goes by in the news, from NSE's equity list and its symbol changes."""
+        names = dict(self.market.listed_companies())
+        former = self.market.former_symbols()
+        others = list(names.values())
+        for ticker in tickers:
+            if ticker not in names and not is_index(ticker):
+                code = ticker.split(".")[0]
+                try:
+                    match = next((b for b in self.market.bse.search(code) if b["symbol"] == code), None)
+                except IndianTraderError as exc:
+                    log.info("BSE name for %s unavailable: %s", ticker, exc)
+                    match = None
+                if match:
+                    names[ticker] = match["name"]
+        return {t: name_terms(t.split(".")[0], names.get(t, ""), others, former.get(t, [])) for t in tickers if not is_index(t)}
+
     def news(self, query: NewsQuery, now: dt.datetime) -> dict:
         tickers = self.watch_tickers(query.tickers)
         follow_stocks = query.stocks
-        names = self.market.company_names() if follow_stocks else {}
+        since = clock.at(query.since, dt.time(0, 0)) if query.since else now - dt.timedelta(hours=query.hours)
+        until = clock.at(query.until, dt.time(23, 59)) if query.until else now + dt.timedelta(minutes=10)
+        live = query.until is None or query.until >= now.date()
+        terms = self.name_terms(tickers) if follow_stocks else {}
         errors: List[str] = []
         raw: List[dict] = []
-        if query.market:
+        if query.market and live:
             raw += self.sources.market_news(errors)
         if follow_stocks:
-            raw += self.sources.stock_news(tickers, names, now, query.filings, errors)
-        items = enrich(raw, mention_patterns(tickers, names), tagging.tag)
+            raw += self.sources.stock_news(tickers, terms, since, min(until, now), query.filings, errors, live and query.since is None)
+        enriched = enrich(raw, mention_patterns(tickers, {}, terms), tagging.tag)
+        fetched = {it["id"] for it in enriched}
+        items = company_relevance(enriched, terms)
+        archive = NewsArchive()
+        archive.save(items)
+        older = [dict(it, origin="archive") if it["tickers"] else it
+                 for it in archive.load(since, until, tickers if not query.market else None) if it["id"] not in fetched]
+        items += company_relevance(older, terms)
+        window = between(items, since, until)
         seen = SeenStore()
-        selected = [it for it in within(items, now, query.hours) if query.show_seen or it["id"] not in seen]
+        show_seen = query.show_seen or query.since is not None
+        selected = [it for it in window if show_seen or it["id"] not in seen]
         if query.only_mine:
             selected = [it for it in selected if it["tickers"]]
         if query.limit:
@@ -84,7 +135,8 @@ class NewsDesk:
             seen.save(now)
         log.info("news: %d new items for %d tickers (%d sources failed)", len(selected), len(tickers), len(errors))
         return {"items": selected, "moves": self.moves(tickers[:12]) if query.with_moves else {}, "tickers": tickers,
-                "errors": errors, "hours": query.hours}
+                "errors": errors, "hours": query.hours, "found": len(window), "since": since, "until": min(until, now),
+                "dated": query.since is not None, "terms": terms}
 
     def movers(self, now: dt.datetime, hours: int = 24, any_company: bool = False, limit: int = 30) -> List[dict]:
         """The latest NSE filings, ranked by how far each stock moved today."""

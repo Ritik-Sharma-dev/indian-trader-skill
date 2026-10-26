@@ -45,7 +45,11 @@ def backtest(result: dict) -> str:
         _row("every live-engine signal", result["all"]), _row("TAKEN by the decision rules", result["taken"])]
     for reason, record in sorted(result["skipped"].items()):
         lines.append(_row("skipped: " + reason, record))
-    lines += ["", "The rules were chosen on these same sessions (in-sample), so expect the future to be worse.",
+    chosen = result.get("rules_chosen_through")
+    if chosen:
+        lines += ["", "Out of sample (sessions after %s, when the rules were chosen): %d sessions" % (chosen, result["sessions_after"]),
+                  _row("TAKEN since then", result["taken_after"])]
+    lines += ["", "Sessions up to %s are the ones the rules were chosen on (in-sample), so expect the future to be worse." % (chosen or "today"),
               "Re-run this every few weeks: if 'TAKEN' stops beating 'every signal', the rules have stopped working."]
     return "\n".join(lines)
 

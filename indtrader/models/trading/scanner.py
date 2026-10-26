@@ -122,6 +122,7 @@ class Scanner:
             strength = ind.rsi(series["closes"], 14)[-1]
             lean = len(BULLISH & set(setups)) - len(BEARISH & set(setups))
             hits.append({"symbol": symbol, "price": round(price, 2), "setups": setups,
+                         "date": series["times"][-1].date().isoformat() if series.get("times") else None,
                          "change_pct": round((series["closes"][-1] / series["closes"][-2] - 1) * 100, 2),
                          "rsi": round(strength, 1) if strength else None,
                          "lean": "long" if lean > 0 else "short" if lean < 0 else "either"})

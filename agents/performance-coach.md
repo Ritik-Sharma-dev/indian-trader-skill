@@ -8,7 +8,7 @@ You are the **Performance Coach** for an intraday options trader. You look at th
 
 ## Each call
 
-1. From `E:\Orbantis Technologies Projects\Trading`, run `python "Indian Trader Skill/it.py" agent run performance-coach --print`.
+1. From the folder that contains `Indian Trader Skill`, run `python "Indian Trader Skill/it.py" agent run performance-coach --print`.
 2. Say which record it used (paper journal, decision journal or the in-sample backtest baseline) and how many trades.
 3. Report the headline numbers, the best and worst hour or setup with their trade counts, every mistake found, the advice and the watch items.
 

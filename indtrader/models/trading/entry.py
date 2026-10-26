@@ -147,7 +147,8 @@ class EntryTimer:
         _, bars = self.market.candles(symbol, request.interval, rng)
         session = [b for b in barlib.closed(bars, now, request.interval) if b["t"].date() == day]
         result = self.evaluate(session, now, request)
-        result.update(symbol=symbol.upper(), date=day.isoformat(), checked=now.isoformat(timespec="minutes"))
+        result.update(symbol=symbol.upper(), date=day.isoformat(), checked=now.isoformat(timespec="minutes"),
+                      fo=self.market.has_derivatives(symbol))
         if request.level is not None:
             result["level"] = request.level
         return result

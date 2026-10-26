@@ -1,11 +1,11 @@
 """The F&O stocks worth watching today, long and short.
 
-Three readings per F&O stock, each worth a point:
+Three readings per F&O stock, graded (a stock needs 2 points):
 
-* **relative strength**: its 20-day return minus NIFTY's (leaders keep
-  leading intraday more often than laggards turn round)
-* **today's move**: up or down at least 1 % (from the F&O gainers and
-  losers lists, or the last two daily closes)
+* **relative strength**: its 20-day return minus NIFTY's, up to 2 points
+  (leaders keep leading intraday more often than laggards turn round)
+* **today's move**: up to 1.5 points, 1 per percent (from the F&O gainers
+  and losers lists, or the last two daily closes)
 * **open-interest buildup** in its futures (NSE OI spurts): price up with OI
   up is long buildup, price down with OI up short buildup; price up with OI
   down is short covering, price down with OI down long unwinding
@@ -85,6 +85,20 @@ def score(row: dict, side: str, count_oi: bool = True) -> List[str]:
     return reasons
 
 
+def points(row: dict, side: str, count_oi: bool = True) -> float:
+    """A graded score: relative strength up to 2 (5 points of RS = 1), today's move up to 1.5, OI buildup 1."""
+    sign = 1 if side == "long" else -1
+    total = 0.0
+    if row.get("rs_20d") is not None and row["rs_20d"] * sign > 0:
+        total += min(row["rs_20d"] * sign / 5, 2.0)
+    if row.get("change_pct") is not None and row["change_pct"] * sign > 0:
+        total += min(row["change_pct"] * sign, 1.5)
+    wanted = ("long buildup", "short covering") if sign > 0 else ("short buildup", "long unwinding")
+    if count_oi and row.get("buildup") in wanted:
+        total += 1.0
+    return round(total, 2)
+
+
 class StockPicker:
     def __init__(self, market) -> None:
         self.market = market
@@ -119,9 +133,10 @@ class StockPicker:
                    "rs_20d": round(ret_20d - nifty_20d, 2) if nifty_20d is not None else None}
             row.update(oi.get(symbol, {"buildup": None, "oi_change_pct": None}))
             row["long"], row["short"] = score(row, "long", not rollover), score(row, "short", not rollover)
+            row["long_points"], row["short_points"] = points(row, "long", not rollover), points(row, "short", not rollover)
             rows.append(row)
-        longs = sorted((r for r in rows if len(r["long"]) >= 2), key=lambda r: (-len(r["long"]), -(r["rs_20d"] or 0)))
-        shorts = sorted((r for r in rows if len(r["short"]) >= 2), key=lambda r: (-len(r["short"]), r["rs_20d"] or 0))
+        longs = sorted((r for r in rows if r["long_points"] >= 2), key=lambda r: (-r["long_points"], -(r["rs_20d"] or 0)))
+        shorts = sorted((r for r in rows if r["short_points"] >= 2), key=lambda r: (-r["short_points"], r["rs_20d"] or 0))
         return {"universe": len(universe), "scanned": len(rows), "nifty_20d": round(nifty_20d, 2) if nifty_20d is not None else None,
                 "longs": longs[:top], "shorts": shorts[:top], "buildups": sum(1 for r in rows if r["buildup"]), "errors": errors,
                 "rollover": rollover, "monthly_expiry": expiry.isoformat()}

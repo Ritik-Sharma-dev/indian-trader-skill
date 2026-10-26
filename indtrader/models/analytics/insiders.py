@@ -29,6 +29,8 @@ log = logging.getLogger(__name__)
 
 OPEN_MARKET = ("market purchase", "market sale", "open market")
 CORE_INSIDERS = re.compile(r"promoter|director|kmp|key managerial", re.IGNORECASE)
+EMPLOYEE_TRUST = re.compile(r"\b(ESOP|ESOS|ESPS)\b|\bemployees?'?\s+(welfare|benefit|stock|share)\b|\bwelfare trust\b", re.IGNORECASE)
+MANAGEMENT_FILINGS = re.compile(r"resign|cessation|appointment|change in (directors|management|kmp)|director/kmp|\bKMP\b|retire", re.IGNORECASE)
 
 
 def _number(value) -> Optional[float]:
@@ -115,14 +117,18 @@ def from_bse(record: dict, matcher: SymbolMatcher) -> dict:
     qty, value = _number(record.get("Fld_SecurityNo")), _number(record.get("Fld_SecurityValue"))
     company = record.get("Companyname") or ""
     mode = record.get("ModeOfAquisation") or "-"
-    if classify(mode, record.get("Fld_TransactionType")) == "pledge":
+    kind = classify(mode, record.get("Fld_TransactionType"))
+    if kind == "pledge":
         mode = pledge_label(mode, record.get("Fld_TransactionType"))
+    category = record.get("Fld_PersonCatgName") or "-"
+    if kind in ("buy", "sell") and (EMPLOYEE_TRUST.search(record.get("Fld_PromoterName") or "") or category.strip().lower() == "trust"):
+        kind = "trust"
     return {
         "source": "PIT", "id": _row_id("pit", record, ("Fld_ID", "Fld_PromoterName", "Fld_SecurityNo", "Fld_FromDate", "Fld_ToDate",
                                                        "ModeOfAquisation", "Fld_TransactionType")),
         "symbol": matcher(company), "bse_code": record.get("Fld_ScripCode"),
-        "company": company, "person": record.get("Fld_PromoterName"), "category": record.get("Fld_PersonCatgName") or "-",
-        "kind": classify(mode, record.get("Fld_TransactionType")), "mode": mode, "security": record.get("Fld_SecurityTypeName") or "-",
+        "company": company, "person": record.get("Fld_PromoterName"), "category": category,
+        "kind": kind, "mode": mode, "security": record.get("Fld_SecurityTypeName") or "-",
         "qty": qty, "value": value, "price": round(value / qty, 2) if qty and value else None,
         "traded_from": _iso(record.get("Fld_FromDate")), "traded_to": _iso(record.get("Fld_ToDate")),
         "filed": _stamp(record.get("Fld_CreateDate")), "pct_before": _number(record.get("Fld_PercentofShareholdingPre")),
@@ -174,9 +180,36 @@ def clusters(trades: Iterable[dict], min_people: int = 2) -> List[dict]:
     return sorted(out, key=lambda g: (-len(g["people"]), -g["value"]))
 
 
+def name_in(person: str, text: str) -> bool:
+    """Every part of a person's name (3+ letters) appears in the text."""
+    parts = [p for p in re.findall(r"[a-z]+", (person or "").lower()) if len(p) >= 3]
+    lowered = (text or "").lower()
+    return len(parts) >= 2 and all(re.search(r"\b%s\b" % p, lowered) for p in parts)
+
+
 class InsiderTracker:
     def __init__(self, market) -> None:
         self.market = market
+
+    def link_management_filings(self, trades: List[dict], start: dt.date, end: dt.date, errors: List[str], limit: int = 15) -> None:
+        """Mark insider trades whose person also appears in the company's management-change filings."""
+        people: Dict[str, List[dict]] = {}
+        for trade in trades:
+            if trade["source"] == "PIT" and trade["kind"] in ("buy", "sell") and trade["symbol"]:
+                people.setdefault(trade["symbol"], []).append(trade)
+        for symbol in list(people)[:limit]:
+            try:
+                payload = self.market.nse.announcements(symbol, start, end)
+            except IndianTraderError as exc:
+                log.info("no filings for %s: %s", symbol, exc)
+                errors.append("management filings %s: %s" % (symbol, exc))
+                continue
+            rows = payload if isinstance(payload, list) else (payload or {}).get("data") or []
+            filings = [r for r in rows if MANAGEMENT_FILINGS.search("%s %s" % (r.get("desc") or "", r.get("attchmntText") or ""))]
+            for trade in people[symbol]:
+                trade["linked"] = [{"category": (r.get("desc") or "").strip(), "filed": _stamp(r.get("an_dt") or r.get("sort_date")),
+                                    "text": (r.get("attchmntText") or "")[:160]}
+                                   for r in filings if name_in(trade["person"], "%s %s" % (r.get("desc") or "", r.get("attchmntText") or ""))]
 
     def collect(self, now: dt.datetime, days: int = 7, symbols: Optional[List[str]] = None, show_all: bool = False,
                 min_value: float = 0, only_new: bool = False, mark_seen: bool = True) -> dict:
@@ -214,6 +247,8 @@ class InsiderTracker:
             seen.mark(trades, now)
             seen.save(now)
         trades.sort(key=lambda t: t["filed"] or "", reverse=True)
+        if wanted:
+            self.link_management_filings(trades, start, end, result["errors"])
         result["trades"] = trades
         result["clusters"] = clusters(trades)
         pit = [t for t in trades if t["source"] == "PIT"]

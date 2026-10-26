@@ -134,7 +134,7 @@ class TestStockPicker(TeamTest):
         self.assertGreater(findings["scanned"], 200)
         self.assertEqual(findings["shorts"][0]["symbol"], "POLICYBZR")
         for row in findings["longs"] + findings["shorts"]:
-            self.assertGreaterEqual(len(row["long"] if row in findings["longs"] else row["short"]), 2)
+            self.assertGreaterEqual(row["long_points"] if row in findings["longs"] else row["short_points"], 2)
             self.assertFalse(any("futures" in reason for reason in row["long"] + row["short"]))   # OI not counted this week
 
 

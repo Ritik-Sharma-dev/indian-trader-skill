@@ -10,11 +10,12 @@
 
 import datetime as dt
 import logging
+import math
 import urllib.parse
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional
 
 from indtrader.core.errors import IndianTraderError
-from indtrader.models.analytics.news import short_name
+from indtrader.models.analytics.news import search_terms
 from indtrader.models.data.feeds import FeedReader, clean_html, parse_time
 from indtrader.models.data.symbols import is_index
 
@@ -43,9 +44,18 @@ NSE_CIRCULAR_DEPTS = frozenset({
 })
 
 
-def google_feed_url(query: str, days: int = 2) -> str:
-    q = urllib.parse.quote_plus("%s when:%dd" % (query, days))
+def google_feed_url(query: str, days: int = 2, since: Optional[dt.date] = None, until: Optional[dt.date] = None) -> str:
+    """A Google News India search: the last ``days``, or ``since`` to ``until`` (both inclusive)."""
+    if since:
+        window = "after:%s before:%s" % ((since - dt.timedelta(days=1)).isoformat(), ((until or since) + dt.timedelta(days=1)).isoformat())
+    else:
+        window = "when:%dd" % days
+    q = urllib.parse.quote_plus("%s %s" % (query, window))
     return "https://news.google.com/rss/search?q=%s&hl=en-IN&gl=IN&ceid=IN:en" % q
+
+
+def stock_query(terms: List[str]) -> str:
+    return "(%s) (share OR shares OR stock OR NSE OR BSE)" % " OR ".join('"%s"' % t for t in terms)
 
 
 def parse_announcements(payload) -> List[dict]:
@@ -79,22 +89,26 @@ class IndiaNewsSources:
     def market_news(self, errors: List[str]) -> List[dict]:
         return self.feeds.read_many(MARKET_FEEDS, errors)
 
-    def stock_news(self, tickers: Iterable[str], names: Dict[str, str], now: dt.datetime, with_filings: bool,
-                   errors: List[str]) -> List[dict]:
+    def stock_news(self, tickers: Iterable[str], terms: Dict[str, List[str]], since: dt.datetime, until: dt.datetime,
+                   with_filings: bool, errors: List[str], live: bool = True) -> List[dict]:
+        """Google News for each ticker's names, plus its NSE filings, from ``since`` to ``until``."""
         items: List[dict] = []
+        days = max(1, math.ceil((until - since).total_seconds() / 86400))
         for ticker in tickers:
             if is_index(ticker):
                 continue
-            name = short_name(names.get(ticker, "")) or ticker
-            query = '"%s" share OR stock' % name if name != ticker else "%s NSE share" % ticker
+            query = stock_query(search_terms(terms.get(ticker) or [ticker]))
+            url = google_feed_url(query, days) if live else google_feed_url(query, since=since.date(), until=until.date())
             try:
-                items += self.feeds.read("Google News", google_feed_url(query), "rss-gnews-%s.xml" % ticker)
+                found = self.feeds.read("Google News", url, "rss-gnews-%s.xml" % ticker)
+                items += [dict(item, origin=ticker) for item in found]
             except IndianTraderError as exc:
                 log.warning("Google News %s failed: %s", ticker, exc)
                 errors.append("Google News %s: %s" % (ticker, exc))
-            if with_filings:
+            if with_filings and not ticker.endswith(".BO"):
+                start = min(since.date(), until.date() - dt.timedelta(days=7))
                 try:
-                    items += parse_announcements(self.market.nse.announcements(ticker, now.date() - dt.timedelta(days=7), now.date()))
+                    items += parse_announcements(self.market.nse.announcements(ticker, start, until.date()))
                 except IndianTraderError as exc:
                     log.warning("NSE filings %s failed: %s", ticker, exc)
                     errors.append("NSE filings %s: %s" % (ticker, exc))

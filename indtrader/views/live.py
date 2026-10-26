@@ -155,9 +155,15 @@ def backtest(symbol: str, days: List, summary: Optional[dict], trades: List[dict
     lines = ["Backtest of the live rules on %s: %d sessions (%s to %s)" % (symbol, len(days), days[0], days[-1])]
     if not summary:
         return "\n".join(lines + ["No trades."])
-    lines.append("%d trades, %d winners (%.0f%%), total %+.2fR (%+.1f index points), average %+.3fR per trade, worst drawdown %.2fR" % (
+    net = "total_net_r" in summary
+    lines.append("%d trades, %d winners (%.0f%%), total %+.2fR (%+.1f %s), average %+.3fR per trade, worst drawdown %.2fR%s" % (
         summary["trades"], summary["wins"], summary["win_rate"] * 100, summary["total_r"], summary["total_points"],
-        summary["avg_r"], summary["max_dd_r"]))
+        "points, rupees per share" if net else "index points", summary["avg_r"], summary["max_dd_r"], " (before charges)" if net else ""))
+    if net:
+        lines.append("After charges (equity intraday, each trade sized to max_loss_per_trade at the stop): %d winners, total %+.2fR, "
+                     "average %+.3fR, net %s after %s of charges" % (
+                         summary["net_wins"], summary["total_net_r"], summary["avg_net_r"],
+                         inr(summary["net_rupees"], 0, sign=True), inr(summary["charges"], 0)))
     lines.append("By setup: " + "; ".join("%s: %d trades, avg %+.2fR, total %+.2fR" % (k, v["n"], v["avg_r"], v["total_r"])
                                           for k, v in summary["by_setup"].items()))
     lines.append("Exits: " + ", ".join("%s %d" % pair for pair in summary["exits"].items()))
@@ -165,5 +171,5 @@ def backtest(symbol: str, days: List, summary: Optional[dict], trades: List[dict
              "%+.1f" % t["points"], "%+.2f" % t["r"]] for t in trades[-last:]] if last else []
     if rows:
         lines.append(table(rows, ["Date", "In", "Side", "Setup", "Entry", "Exit", "Out", "Why", "Pts", "R"], "llllrrllrr"))
-    lines.append("Index points, before option theta and charges. Past sessions, not a forecast.")
+    lines.append(("Points are rupees per share." if net else "Index points, before option theta and charges.") + " Past sessions, not a forecast.")
     return "\n".join(lines)

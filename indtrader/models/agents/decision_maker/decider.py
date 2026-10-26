@@ -28,7 +28,7 @@ from typing import List, Optional
 from indtrader.core import clock, settings
 from indtrader.core.context import AppContext
 from indtrader.core.errors import IndianTraderError, ValidationError
-from indtrader.core.formatting import inr, num
+from indtrader.core.formatting import inr, num, strike
 from indtrader.core.storage import read_json, write_json
 from indtrader.models.agents.decision_maker.context import DayContext, confidence
 from indtrader.models.agents.decision_maker.journal import DecisionJournal
@@ -138,8 +138,8 @@ class Decider:
         levels = context["levels"]
         if levels.get("resistance") or levels.get("support"):
             why.append("option walls: resistance %s, support %s, max pain %s" % (
-                "/".join(num(s, 0) for s in levels.get("resistance", [])), "/".join(num(s, 0) for s in levels.get("support", [])),
-                num(levels.get("max_pain"), 0)))
+                "/".join(strike(s) for s in levels.get("resistance", [])), "/".join(strike(s) for s in levels.get("support", [])),
+                strike(levels.get("max_pain"))))
         do = ["Trade window 09:30-%s, one trade, 1 lot, LIMIT orders, square off by %s." % (
             self.rules.last_entry.strftime("%H:%M"), self.ctx.cfg["square_off_by"]),
             "Run `decide now NIFTY` every 3-5 minutes from 09:30 (or the /in-decide loop) and act only on BUY / EXIT."]
@@ -305,6 +305,9 @@ class Decider:
         for trade in split["skipped"]:
             key = trade["skip"].split(" (")[0]
             reasons.setdefault(key, []).append(trade)
+        chosen = self.ctx.cfg["decision"].get("rules_chosen_through")
+        later = [t for t in split["taken"] if chosen and t["date"] > chosen]
         return {"symbol": symbol, "sessions": len(days), "from": days[0].isoformat() if days else None,
                 "to": days[-1].isoformat() if days else None, "all": stats(trades), "taken": stats(split["taken"]),
-                "skipped": {k: stats(v) for k, v in reasons.items()}, "trades": split["taken"]}
+                "skipped": {k: stats(v) for k, v in reasons.items()}, "trades": split["taken"], "rules_chosen_through": chosen,
+                "sessions_after": sum(1 for d in days if chosen and d.isoformat() > chosen), "taken_after": stats(later)}

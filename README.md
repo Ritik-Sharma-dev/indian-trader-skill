@@ -6,7 +6,7 @@ It has no broker connection and cannot place an order. Every output is analysis 
 
 - Python 3.8+, standard library only. No dependencies, no API keys.
 - Data from free public sources (NSE and BSE website APIs, Yahoo Finance, news RSS), cross-checked against the exchanges' official figures.
-- 201 tests that run offline on recorded snapshots of real market sessions.
+- 225 tests that run offline on recorded snapshots of real market sessions.
 
 New to the tool? Start with the **[Trading Guide](docs/TRADING_GUIDE.md)**: how the live chart is read, which indicators decide CALL or PUT, when to buy and when to sell, and a real trading day step by step.
 
@@ -110,6 +110,8 @@ python it.py decide backtest NIFTY               # the decision rules' record
 python it.py holdings --find "life insurance" --list nifty50
 python it.py screen --preset momentum --list nifty100
 python it.py tax report                          # F&O and intraday turnover and P&L (not tax advice)
+python it.py news --tickers NCC --since 2026-10-12 --until 2026-10-18   # a past week of company news and NSE filings
+python it.py live backtest GROWW                 # a stock's record, before and after intraday charges
 ```
 
 ## Claude Code integration
@@ -188,9 +190,20 @@ The `workspace/` folder holds everything the tool writes: config, journals, stat
 | Option chains, expiries, lot sizes, holidays | NSE `option-chain-v3`, `option-chain-contract-info`, `fo_mktlots.csv`, `holiday-master` |
 | Flows, deals, OI changes | NSE `fiidiiTradeReact`, participant OI files, `snapshot-capital-market-largedeal`, `live-analysis-oi-spurts-contracts` |
 | Filings, ownership, valuation | NSE announcements, `corporate-sast-reg29`, shareholding XBRL, `GetQuoteApi`; BSE insider-trading disclosures |
-| News and calendar | Indian and global RSS feeds; the Forex Factory economic calendar |
+| News and calendar | Indian and global RSS feeds; Google News India search by company name and date; the Forex Factory economic calendar |
+| Official day, symbols | NSE `sec_bhavdata_full` (bhavcopy), `EQUITY_L.csv`, `symbolchange.csv`; BSE quote search |
 
-These APIs are public but unofficial and can change. The data layer applies corrections found by cross-checking against the exchanges: official index quotes first, previous closes from the previous NSE session, missing daily bars rebuilt from 5-minute bars, and option IVs computed the way NSE computes them. BSE insider filings include the filer's PAN, address and phone number. These fields are dropped on arrival and never cached, saved or shown.
+These APIs are public but unofficial and can change. The data layer applies corrections found by cross-checking against the exchanges: official index quotes first, previous closes from the previous NSE session, missing daily bars rebuilt from 5-minute bars, and option IVs computed the way NSE computes them.
+
+Corrections added after cross-checking stocks (26 Oct 2026):
+
+- **Closing auction.** From 3 Aug 2026, stocks with F&O stop continuous trading at 15:15, an auction sets their official close by 15:35, and equity derivatives trade until 15:40 (options now expire at 15:40). Intraday bars of those stocks and of indices carry `auction: true` from 15:15; charts read indicators at the last continuous bar and report the auction close separately.
+- **Option prices vs spot.** The chain checks NSE's spot against the price implied by put-call parity at the strikes nearest ATM. When they differ by more than `max_spot_parity_gap_pct` (0.5 %), as after the auction, ATM, IV and Greeks use the parity price and the view says so.
+- **NSE's official day.** For a finished session, charts compare the bars with NSE's bhavcopy (`sec_bhavdata_full`) and flag a gap over 0.2 %; the official close is shown as the last price.
+- **Strikes** are printed exactly (152.5, never 152).
+- **Stock backtests** size each trade to `max_loss_per_trade` and subtract equity-intraday charges; index backtests are still before option decay and charges.
+- **Symbols.** An unknown symbol is explained from NSE's equity list, its symbol-change file and BSE's search (`HDFC`: NSE symbols starting HDFC; `ZOMATO`: renamed ETERNAL; `AMINTAN`: listed only on BSE as `AMINTAN.BO`).
+- **Company events.** A chart warns when results, a board outcome or another major filing came after its last bar. BSE insider filings include the filer's PAN, address and phone number. These fields are dropped on arrival and never cached, saved or shown.
 
 ## Testing
 

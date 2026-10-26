@@ -3,7 +3,7 @@
 import datetime as dt
 from typing import List, Optional
 
-from indtrader.core.formatting import num, pct, table
+from indtrader.core.formatting import num, pct, strike, table
 from indtrader.models.analytics.history import BUCKETS
 
 
@@ -38,17 +38,25 @@ def chart(analysis: dict) -> str:
 def chain(analysis: dict, rows_each_side: int = 6) -> str:
     a = analysis
     lines = ["%s option chain, expiry %s (%.1f days), as of %s" % (a["symbol"], a["expiry"], a["days_to_expiry"], a.get("timestamp") or "-"),
-             "Spot %s   ATM %s   lot %s   step %s" % (num(a["spot"]), num(a["atm"], 0), a.get("lot") or "-", num(a["strike_step"], 0)), ""]
+             "Spot %s   ATM %s   lot %s   step %s" % (num(a["spot"]), strike(a["atm"]), a.get("lot") or "-", strike(a["strike_step"]))]
+    if a.get("spot_mismatch"):
+        lines.append("WARNING: the options are priced off %s (put-call parity), %+.2f%% from NSE's spot %s, so spot and option "
+                     "prices are from different moments (closing auction?). ATM, IV and Greeks use %s." % (
+                         num(a["pricing_spot"]), a["parity_gap_pct"], num(a["spot"]), num(a["pricing_spot"])))
+    lines.append("")
     change_pcr = num(a["pcr_change"]) if a["pcr_change"] is not None else "n/a"
     lines.append("PCR (OI) %s   PCR near ATM %s   PCR of today's change %s (calls %+d, puts %+d contracts)"
                  % (num(a["pcr"]), num(a["pcr_near"]), change_pcr, a["ce_oi_added"], a["pe_oi_added"]))
-    lines.append("Max pain %s   ATM IV %s   ATM straddle %s (priced-in move to expiry: +/- %s, %s)" % (
-        num(a["max_pain"], 0), ("%.1f%%" % (a["atm_iv"] * 100)) if a["atm_iv"] else "-", num(a["straddle"]),
-        num(a["expected_move"], 0), ("%.2f%%" % (a["expected_move"] / a["spot"] * 100)) if a["expected_move"] else "-"))
-    lines.append("Resistance (call OI): " + ", ".join("%s (%s)" % (num(x["strike"], 0), x["oi"]) for x in a["resistance"]))
-    lines.append("Support (put OI):     " + ", ".join("%s (%s)" % (num(x["strike"], 0), x["oi"]) for x in a["support"]))
-    lines.append("Most calls written:   " + ", ".join("%s (%+d)" % (num(x["strike"], 0), x["coi"]) for x in a["ce_writing"]))
-    lines.append("Most puts written:    " + ", ".join("%s (%+d)" % (num(x["strike"], 0), x["coi"]) for x in a["pe_writing"]))
+    spot = a.get("pricing_spot") or a["spot"]
+    lines.append("Max pain %s (%+.1f%% from spot)   ATM IV %s   ATM straddle %s (priced-in move to expiry: +/- %s, %s)" % (
+        strike(a["max_pain"]), (a["max_pain"] / spot - 1) * 100, ("%.1f%%" % (a["atm_iv"] * 100)) if a["atm_iv"] else "-",
+        num(a["straddle"]), num(a["expected_move"], 0), ("%.2f%%" % (a["expected_move"] / spot * 100)) if a["expected_move"] else "-"))
+    if a["expected_move"] and abs(a["max_pain"] - spot) > a["expected_move"]:
+        lines.append("Max pain is further from spot than the priced-in move: little pull on the price.")
+    lines.append("Resistance (call OI): " + ", ".join("%s (%s)" % (strike(x["strike"]), x["oi"]) for x in a["resistance"]))
+    lines.append("Support (put OI):     " + ", ".join("%s (%s)" % (strike(x["strike"]), x["oi"]) for x in a["support"]))
+    lines.append("Most calls written:   " + ", ".join("%s (%+d)" % (strike(x["strike"]), x["coi"]) for x in a["ce_writing"]))
+    lines.append("Most puts written:    " + ", ".join("%s (%+d)" % (strike(x["strike"]), x["coi"]) for x in a["pe_writing"]))
     lines += ["", "Positioning: %s (score %+d)" % (a["bias"].upper(), a["bias_score"])]
     lines += ["  - " + reason for reason in a["reasons"]]
     lines.append("")
@@ -58,7 +66,7 @@ def chain(analysis: dict, rows_each_side: int = 6) -> str:
         ce, pe = r["ce"] or {}, r["pe"] or {}
         rows.append([num(ce.get("delta")), ce.get("oi", "-"), "%+d" % ce.get("coi", 0), num(ce.get("ltp")),
                      ("%.1f" % (ce["iv_calc"] * 100)) if ce.get("iv_calc") else "-",
-                     num(r["strike"], 0) + ("*" if r["strike"] == a["atm"] else ""),
+                     strike(r["strike"]) + ("*" if r["strike"] == a["atm"] else ""),
                      ("%.1f" % (pe["iv_calc"] * 100)) if pe.get("iv_calc") else "-",
                      num(pe.get("ltp")), "%+d" % pe.get("coi", 0), pe.get("oi", "-"), num(pe.get("delta"))])
     lines.append(table(rows, ["CE delta", "CE OI", "CE chg", "CE LTP", "CE IV", "STRIKE", "PE IV", "PE LTP", "PE chg",

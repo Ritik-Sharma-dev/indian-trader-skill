@@ -47,7 +47,7 @@ For a live session, loop it from 09:25 to 15:20 with `/loop 3m` and the instruct
 
 ## Ground rules (all Indian Trader skills)
 
-- Run commands from the project folder (`E:\Orbantis Technologies Projects\Trading`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
+- Run commands from the project folder (the one that contains `Indian Trader Skill`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
 - All times are IST. Output files go to `Indian Trader Skill/workspace/`.
 - There is **no broker connection**. Nothing here can place a real order.
 - Data is free and unofficial (NSE, BSE, Yahoo). It can lag; confirm prices in the broker app.

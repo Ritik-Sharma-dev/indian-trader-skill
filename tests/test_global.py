@@ -108,7 +108,8 @@ class TestClaudeAgentFiles(unittest.TestCase):
     AGENTS = ("india-market-news", "global-market-news", "market-data-analyst", "live-market-monitor")
 
     def test_agent_files(self):
-        for folder in (os.path.join(ROOT, "agents"), os.path.join(os.path.dirname(ROOT), ".claude", "agents")):
+        installed = os.path.join(os.path.dirname(ROOT), ".claude", "agents")
+        for folder in (os.path.join(ROOT, "agents"),) + ((installed,) if os.path.isdir(installed) else ()):
             for name in self.AGENTS:
                 path = os.path.join(folder, name + ".md")
                 self.assertTrue(os.path.exists(path), path)

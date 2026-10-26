@@ -9,7 +9,7 @@ function: ``(title, now, findings) -> str``.
 import datetime as dt
 from typing import Callable, Dict, List
 
-from indtrader.core.formatting import num, pct
+from indtrader.core.formatting import num, pct, strike
 from indtrader.models.agents.trading_desk.agent import STAGE_NAMES
 from indtrader.views import decisions, live, team
 from indtrader.views.market import sector_line
@@ -115,8 +115,8 @@ def market_analyst(title: str, now: dt.datetime, findings: dict) -> str:
         chain = entry.get("chain")
         if chain:
             lines.append("- Options %s: PCR %s, max pain %s, call wall %s, put wall %s, ATM IV %s, priced-in move +/- %s, positioning %s" % (
-                chain["expiry"], num(chain["pcr"]), num(chain["max_pain"], 0), num(chain["resistance"][0]["strike"], 0),
-                num(chain["support"][0]["strike"], 0), ("%.1f%%" % (chain["atm_iv"] * 100)) if chain["atm_iv"] else "-",
+                chain["expiry"], num(chain["pcr"]), strike(chain["max_pain"]), strike(chain["resistance"][0]["strike"]),
+                strike(chain["support"][0]["strike"]), ("%.1f%%" % (chain["atm_iv"] * 100)) if chain["atm_iv"] else "-",
                 num(chain["expected_move"], 0), chain["bias"]))
         past = entry.get("history")
         if past:
@@ -274,8 +274,8 @@ def brief(now: dt.datetime, data: dict) -> str:
         a = entry["analysis"]
         lines.append("**%s** spot %s, expiry %s (%.1f days): PCR %s, max pain %s, support %s, resistance %s, ATM IV %s, "
                      "priced-in move +/- %s. Positioning: %s." % (
-                         entry["symbol"], num(a["spot"]), a["expiry"], a["days_to_expiry"], num(a["pcr"]), num(a["max_pain"], 0),
-                         "/".join(num(x["strike"], 0) for x in a["support"][:2]), "/".join(num(x["strike"], 0) for x in a["resistance"][:2]),
+                         entry["symbol"], num(a["spot"]), a["expiry"], a["days_to_expiry"], num(a["pcr"]), strike(a["max_pain"]),
+                         "/".join(strike(x["strike"]) for x in a["support"][:2]), "/".join(strike(x["strike"]) for x in a["resistance"][:2]),
                          ("%.1f%%" % (a["atm_iv"] * 100)) if a["atm_iv"] else "-", num(a["expected_move"], 0), a["bias"]))
 
     events = data["events"]

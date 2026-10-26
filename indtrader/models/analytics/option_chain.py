@@ -16,12 +16,13 @@ OI is in contracts, as NSE reports it. BSE (SENSEX) chains are not covered.
 
 import datetime as dt
 import logging
+import math
 from collections import Counter
 from typing import Dict, List, Optional
 
 from indtrader.core import clock, settings
 from indtrader.core.errors import DataError, ValidationError
-from indtrader.core.formatting import num, round_tick
+from indtrader.core.formatting import num, round_tick, strike as strike_text
 from indtrader.models.analytics import blackscholes as bs
 from indtrader.models.data.symbols import BSE_INDICES, NSE_INDICES
 
@@ -85,7 +86,7 @@ def chain_time(chain: dict, now: dt.datetime) -> dt.datetime:
         stamp = dt.datetime.strptime(chain.get("timestamp") or "", "%d-%b-%Y %H:%M:%S").replace(tzinfo=clock.IST)
     except ValueError:
         return now
-    return min(stamp, clock.at(stamp.date(), clock.CLOSE), now)
+    return min(stamp, clock.at(stamp.date(), clock.derivatives_close(stamp.date())), now)
 
 
 # --- per-strike maths ----------------------------------------------------------------
@@ -129,12 +130,26 @@ def spread_pct(leg: Optional[dict]) -> Optional[float]:
     return (leg["ask"] - leg["bid"]) / middle * 100 if middle else None
 
 
-def leg_metrics(kind: str, leg: Optional[dict], strike: float, spot: float, years: float, rate: float) -> Optional[dict]:
+def implied_spot(rows: List[dict], atm_index: int, years: float, rate: float, depth: int = 3) -> Optional[float]:
+    """The underlying price the options are trading on, from put-call parity at the strikes nearest ATM."""
+    values = []
+    for row in rows[max(0, atm_index - depth): atm_index + depth + 1]:
+        call, put = premium_of(row["ce"]), premium_of(row["pe"])
+        if call and put and (row["ce"] or {}).get("vol") and (row["pe"] or {}).get("vol"):
+            values.append(call - put + row["strike"] * math.exp(-rate * years))
+    if not values:
+        return None
+    values.sort()
+    return values[len(values) // 2]
+
+
+def leg_metrics(kind: str, leg: Optional[dict], strike: float, spot: float, years: float, rate: float,
+                use_nse_iv: bool = True) -> Optional[dict]:
     """IV (NSE's, else solved) and Greeks for one option."""
     if not leg:
         return None
     premium = premium_of(leg)
-    iv = leg["iv"] / 100.0 if leg["iv"] else bs.implied_vol(kind, premium, spot, strike, years, rate)
+    iv = leg["iv"] / 100.0 if (leg["iv"] and use_nse_iv) else bs.implied_vol(kind, premium, spot, strike, years, rate)
     return {"premium": premium, "iv": iv, "spread_pct": spread_pct(leg),
             "greeks": bs.greeks(kind, spot, strike, years, rate, iv) if iv else None}
 
@@ -179,6 +194,14 @@ class OptionChainAnalyzer:
         years = clock.years_to(expiry_at, as_of)
         atm = min(rows, key=lambda r: abs(r["strike"] - spot))["strike"]
         atm_index = next(i for i, r in enumerate(rows) if r["strike"] == atm)
+        parity = implied_spot(rows, atm_index, years, rate)
+        parity_gap = (parity / spot - 1) * 100 if parity else None
+        mismatch = parity_gap is not None and abs(parity_gap) > self.cfg["max_spot_parity_gap_pct"]
+        if mismatch:
+            spot = parity
+            atm = min(rows, key=lambda r: abs(r["strike"] - spot))["strike"]
+            atm_index = next(i for i, r in enumerate(rows) if r["strike"] == atm)
+        use_nse_iv = not mismatch
         near = rows[max(0, atm_index - band): atm_index + band + 1]
 
         def total(subset: List[dict], side: str, key: str) -> float:
@@ -194,8 +217,8 @@ class OptionChainAnalyzer:
         put_writing = sorted((r for r in rows if r["pe"]), key=lambda r: -r["pe"]["coi"])[:3]
 
         atm_row = rows[atm_index]
-        ce_metrics = leg_metrics("CE", atm_row["ce"], atm, spot, years, rate)
-        pe_metrics = leg_metrics("PE", atm_row["pe"], atm, spot, years, rate)
+        ce_metrics = leg_metrics("CE", atm_row["ce"], atm, spot, years, rate, use_nse_iv)
+        pe_metrics = leg_metrics("PE", atm_row["pe"], atm, spot, years, rate, use_nse_iv)
         straddle = ((ce_metrics or {}).get("premium") or 0) + ((pe_metrics or {}).get("premium") or 0)
         ivs = [m["iv"] for m in (ce_metrics, pe_metrics) if m and m["iv"]]
         atm_iv = sum(ivs) / len(ivs) if ivs else None
@@ -203,7 +226,8 @@ class OptionChainAnalyzer:
 
         return {
             "symbol": chain["symbol"], "expiry": chain["expiry"].isoformat(), "timestamp": chain.get("timestamp"),
-            "spot": spot, "lot": lot, "days_to_expiry": round((expiry_at - as_of).total_seconds() / 86400, 2),
+            "spot": chain["spot"], "pricing_spot": spot, "parity_spot": parity, "parity_gap_pct": parity_gap,
+            "spot_mismatch": mismatch, "lot": lot, "days_to_expiry": round((expiry_at - as_of).total_seconds() / 86400, 2),
             "strike_step": strike_step(rows, spot), "atm": atm,
             "pcr": pcr, "pcr_near": near_pe / near_ce if near_ce else None,
             "pcr_change": pe_added / ce_added if ce_added > 0 else None,
@@ -216,7 +240,7 @@ class OptionChainAnalyzer:
             "atm_iv": atm_iv, "straddle": straddle or None,
             "expected_move": straddle or (bs.expected_move(spot, atm_iv, years) if atm_iv else None),
             "bias": self._bias_label(score), "bias_score": score, "reasons": reasons,
-            "near": [self._strike_row(r, spot, years, rate) for r in near],
+            "near": [self._strike_row(r, spot, years, rate, use_nse_iv) for r in near],
         }
 
     @staticmethod
@@ -259,10 +283,10 @@ class OptionChainAnalyzer:
         return "mildly bearish" if score == -1 else "neutral"
 
     @staticmethod
-    def _strike_row(row: dict, spot: float, years: float, rate: float) -> dict:
+    def _strike_row(row: dict, spot: float, years: float, rate: float, use_nse_iv: bool = True) -> dict:
         out: Dict[str, object] = {"strike": row["strike"]}
         for kind, key in (("CE", "ce"), ("PE", "pe")):
-            metrics = leg_metrics(kind, row[key], row["strike"], spot, years, rate)
+            metrics = leg_metrics(kind, row[key], row["strike"], spot, years, rate, use_nse_iv)
             leg = dict(row[key] or {})
             if metrics:
                 leg.update(premium=metrics["premium"], iv_calc=metrics["iv"], spread_pct=metrics["spread_pct"],
@@ -289,15 +313,15 @@ def pick_strike(analysis: dict, kind: str, choice: Optional[str] = "atm") -> dic
     row = next((r for r in near if abs(r["strike"] - target) < 1e-6), None)
     if row is None:
         raise ValidationError("strike %s is not in the chain near spot (%s ... %s)"
-                              % (num(target, 0), num(near[0]["strike"], 0), num(near[-1]["strike"], 0)))
+                              % (strike_text(target), strike_text(near[0]["strike"]), strike_text(near[-1]["strike"])))
     leg = row[kind.lower()]
     if not leg or not leg.get("premium"):
-        raise DataError("%s %s %s has no price" % (analysis["symbol"], num(target, 0), kind))
+        raise DataError("%s %s %s has no price" % (analysis["symbol"], strike_text(target), kind))
     picked = {"symbol": analysis["symbol"], "expiry": analysis["expiry"], "strike": row["strike"], "kind": kind,
               "premium": round_tick(leg["premium"]), "ltp": leg.get("ltp"), "bid": leg.get("bid"), "ask": leg.get("ask"),
               "iv": leg.get("iv_calc"), "delta": leg.get("delta"), "gamma": leg.get("gamma"), "theta": leg.get("theta"),
               "vega": leg.get("vega"), "oi": leg.get("oi"), "volume": leg.get("vol"), "spread_pct": leg.get("spread_pct"),
-              "spot": analysis["spot"], "lot": analysis.get("lot")}
+              "spot": analysis.get("pricing_spot") or analysis["spot"], "lot": analysis.get("lot")}
     if analysis.get("lot"):
         picked["cost_per_lot"] = round(picked["premium"] * analysis["lot"], 2)
     return picked

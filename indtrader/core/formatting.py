@@ -32,6 +32,13 @@ def num(value: Optional[float], decimals: int = 2) -> str:
     return "-" if value is None else "%.*f" % (decimals, value)
 
 
+def strike(value: Optional[float]) -> str:
+    """22700 -> '22700', 152.5 -> '152.5'."""
+    if value is None:
+        return "-"
+    return ("%.2f" % value).rstrip("0").rstrip(".")
+
+
 def pct(value: Optional[float], decimals: int = 2, sign: bool = True) -> str:
     if value is None:
         return "-"

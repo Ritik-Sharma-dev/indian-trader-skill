@@ -1,8 +1,10 @@
 """BSE's public API: the official SENSEX quote and insider-trading disclosures."""
 
 import datetime as dt
+import html
 import logging
 import re
+import urllib.parse
 from typing import List, Optional
 
 from indtrader.core.errors import DataError
@@ -12,6 +14,7 @@ log = logging.getLogger(__name__)
 
 SENSEX_URL = "https://api.bseindia.com/RealTimeBseIndiaAPI/api/GetSensexData/w"
 INSIDER_URL = "https://api.bseindia.com/BseIndiaAPI/api/InsiderTrade15/w?scripcode=&fromdt=%s&todt=%s"
+SEARCH_URL = "https://api.bseindia.com/Msource/1D/getQouteSearch.aspx?Type=EQ&text=%s&flag=site"
 HEADERS = {"Referer": "https://www.bseindia.com/", "Origin": "https://www.bseindia.com"}
 
 # BSE publishes the filer's PAN, address and phone number with every insider
@@ -24,9 +27,28 @@ def strip_personal(record: dict) -> dict:
     return {key: value for key, value in record.items() if not PERSONAL_FIELDS.search(key)}
 
 
+def parse_search(text: str) -> List[dict]:
+    """BSE's quote search -> ``[{name, symbol, isin, code}]``."""
+    out = []
+    for item in re.findall(r"<li[^>]*>(.*?)</li>", text or "", re.S):
+        parts = re.sub(r"<br\s*/?>", "|", item)
+        parts = html.unescape(re.sub(r"<span class='offleft'.*?</span>|<[^>]+>", "", parts, flags=re.S)).split("|")
+        if len(parts) < 2:
+            continue
+        fields = parts[1].split()
+        if len(fields) >= 3 and fields[2].isdigit():
+            out.append({"name": " ".join(parts[0].split()), "symbol": fields[0].upper(), "isin": fields[1], "code": fields[2]})
+    return out
+
+
 class BseClient:
     def __init__(self, http: HttpClient) -> None:
         self.http = http
+
+    def search(self, text: str) -> List[dict]:
+        url = SEARCH_URL % urllib.parse.quote(text.strip())
+        return parse_search(self.http.text(url, name="bse-search-%s.html" % re.sub(r"\W+", "_", text.strip().lower()),
+                                           headers=HEADERS, ttl=86400))
 
     def sensex(self) -> Optional[dict]:
         """BSE's own SENSEX record (ltp, Prev_Close, I_open, High, Low, dttm)."""

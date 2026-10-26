@@ -55,7 +55,8 @@ def _scan_daily(args: Namespace, ctx: AppContext, scanner: Scanner, symbols) -> 
     if args.json:
         print_json(hits)
         return 0
-    print("Daily setups, %d of %d stocks (%s), closes to %s:" % (len(hits), len(symbols), "custom" if args.symbols else args.list, ctx.now.date()))
+    last = max((h["date"] for h in hits if h.get("date")), default=None) or clock.prev_trading_day(ctx.now.date(), include=True).isoformat()
+    print("Daily setups, %d of %d stocks (%s), closes to %s:" % (len(hits), len(symbols), "custom" if args.symbols else args.list, last))
     rows = [[h["symbol"], num(h["price"]), pct(h["change_pct"]), num(h["rsi"], 1), h["lean"], ", ".join(h["setups"])] for h in hits[: args.top]]
     print(table(rows, ["Symbol", "Close", "Day %", "RSI", "Lean", "Setups"], "lrrrll"))
     if skipped:

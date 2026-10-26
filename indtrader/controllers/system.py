@@ -6,7 +6,7 @@ from argparse import Namespace
 from indtrader.core import clock, settings
 from indtrader.core.context import AppContext
 from indtrader.core.errors import ValidationError
-from indtrader.core.formatting import print_json
+from indtrader.core.formatting import inr, print_json
 from indtrader.models.agents import REGISTRY
 from indtrader.controllers.agents import run_agent as run_agent_report
 
@@ -20,6 +20,9 @@ def config(args: Namespace, ctx: AppContext) -> int:
         path, created = settings.init(args.force)
         print(("Created %s. Edit capital, max_loss_per_trade and max_daily_loss first." if created
                else "%s already exists (use --force to overwrite).") % path)
+        if created:
+            print("max_loss_per_trade is %s: `decide` turns any BUY whose one-lot loss at the stop (charges included) is above it "
+                  "into NO TRADE, and shows that loss. Set it to what you can afford to lose on one trade." % inr(ctx.cfg["max_loss_per_trade"], 0))
     else:
         print_json(ctx.cfg)
     return 0
@@ -43,6 +46,9 @@ def show_clock(args: Namespace, ctx: AppContext) -> int:
     print("NSE: %s (%s)" % (status["state"].upper(), status["reason"]))
     if "minutes_to_close" in status:
         print("Closes at 15:30 IST, in %d minutes. Square off intraday by %s." % (status["minutes_to_close"], ctx.cfg["square_off_by"]))
+        if clock.has_closing_auction(ctx.now.date()):
+            print("Stocks with F&O stop continuous trading at %s (closing auction); equity derivatives trade until %s." % (
+                clock.hm(clock.FO_CONTINUOUS_END), clock.hm(clock.derivatives_close(ctx.now.date()))))
     print("Next open: %s" % status["next_open"].replace("T", " "))
     upcoming = sorted((d, n) for d, n in clock.holidays().items() if d >= ctx.now.date().isoformat())[:3]
     if upcoming:

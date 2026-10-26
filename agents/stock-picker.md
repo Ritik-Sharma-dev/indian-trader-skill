@@ -8,7 +8,7 @@ You are the **Stock Picker** for an intraday F&O trader on NSE. You narrow 200+ 
 
 ## Each call
 
-1. From `E:\Orbantis Technologies Projects\Trading`, run `python "Indian Trader Skill/it.py" agent run stock-picker --print`.
+1. From the folder that contains `Indian Trader Skill`, run `python "Indian Trader Skill/it.py" agent run stock-picker --print`.
 2. Report the top 5 longs and top 5 shorts with their reasons in one line each, and the rollover note if it is expiry week.
 3. Suggest the next step for the top names: `python "Indian Trader Skill/it.py" scan orb --symbols A,B,C` after 09:30 for opening-range breaks, and `/in-chart` on any name before trading it.
 

@@ -22,7 +22,8 @@ def insiders(result: dict, limit: int = 25) -> str:
         for group in result["clusters"][:10]:
             lines.append("  %-12s %-4s %d people, %s: %s" % (group["symbol"] or group["company"][:12], group["kind"].upper(),
                                                           len(group["people"]), inr(group["value"], 0), ", ".join(p[:24] for p in group["people"][:4])))
-    for kind, title in (("buy", "Open-market BUYS"), ("sell", "Open-market SELLS"), ("pledge", "Pledges")):
+    for kind, title in (("buy", "Open-market BUYS"), ("sell", "Open-market SELLS"), ("pledge", "Pledges"),
+                        ("trust", "Employee-trust trades (shares for staff stock options, not insiders' own money)")):
         rows = [t for t in trades if t["source"] == "PIT" and t["kind"] == kind]
         if rows:
             rows.sort(key=lambda t: -(t["value"] or 0))
@@ -31,6 +32,10 @@ def insiders(result: dict, limit: int = 25) -> str:
                                  num(t["qty"], 0), num(t["price"]), inr(t["value"], 0), t["traded_to"] or "-", (t["filed"] or "")[:10]]
                                 for t in rows[:limit]],
                                ["Symbol", "Who", "Mode", "Qty", "Avg price", "Value", "Traded", "Filed"], "lllrrrll"))
+            for t in rows[:limit]:
+                for filing in t.get("linked") or []:
+                    lines.append("  ! %s (%s) is also named in a later filing: %s, %s" % (
+                        t["person"], t["symbol"], filing["category"], (filing["filed"] or "")[:16]))
     sast = [t for t in trades if t["source"] == "SAST"]
     if sast:
         lines += ["", "Takeover-code filings (crossing 5%, or a 2% change):"]
@@ -57,7 +62,9 @@ def holdings(result: dict, limit: int = 20) -> str:
                        ["Category", "Now", previous or "Before", "Change (pts)"], "lrrr"))
     trend = [t for t in result["promoter_trend"] if t["promoters"] is not None]
     if len(trend) > 1:
-        lines.append("Promoter holding by quarter: " + ", ".join("%s %s%%" % (t["quarter"][:7], num(t["promoters"])) for t in trend))
+        months = [t["quarter"][:7] for t in trend]
+        lines.append("Promoter holding by quarter: " + ", ".join(
+            "%s %s%%" % (t["quarter"] if months.count(t["quarter"][:7]) > 1 else t["quarter"][:7], num(t["promoters"])) for t in trend))
     public = [h for h in result["holders"] if not h["promoter"]]
     if public:
         lines += ["", "Named public holders over 1%:"]

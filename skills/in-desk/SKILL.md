@@ -43,6 +43,6 @@ Saves `workspace/research/<date>/trading-desk-data.md` and each stage's own repo
 
 ## Ground rules (all Indian Trader skills)
 
-- Run commands from the project folder (`E:\Orbantis Technologies Projects\Trading`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
+- Run commands from the project folder (the one that contains `Indian Trader Skill`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
 - All times are IST. There is **no broker connection**: nothing here can place a real order.
 - Data is free and unofficial; confirm prices in the broker app. This is analysis, not advice.

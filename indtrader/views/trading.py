@@ -2,7 +2,8 @@
 
 from typing import List, Optional
 
-from indtrader.core.formatting import inr, num, table
+from indtrader.core.formatting import inr, num, strike, table
+from indtrader.models.data.symbols import is_index
 from indtrader.models.trading.alerts import AlertBook, describe
 from indtrader.models.trading.paper import stats
 from indtrader.models.trading.sizing import UNLIMITED
@@ -16,7 +17,15 @@ def entry(result: dict) -> str:
             text += " (range %s - %s)" % (num(result["or_low"]), num(result["or_high"]))
         if result.get("vol_x"):
             text += ", volume %.1fx the range bars" % result["vol_x"]
-        text += ". Instrument: %s." % ("buy CE or buy future" if result["side"] == "long" else "buy PE or sell future")
+        long = result["side"] == "long"
+        if result.get("fo") is False:
+            text += ". Instrument: %s (%s has no futures or options)." % ("buy the stock intraday" if long else "short the stock intraday",
+                                                                         result["symbol"])
+        else:
+            text += ". Instrument: %s%s." % ("buy CE or buy future" if long else "buy PE or sell future",
+                                             " (NSE's F&O list was unavailable: check that it trades in F&O)" if result.get("fo") is None else "")
+        if not is_index(result["symbol"]):
+            text += " This setup's record on %s after charges: `live backtest %s`." % (result["symbol"], result["symbol"])
     elif result.get("why"):
         text += ": " + result["why"]
     return text
@@ -39,8 +48,8 @@ def plan(plan: dict) -> str:
         view = plan.get("chain_view")
         if view:
             lines.append("Chain: PCR %s, max pain %s, support %s, resistance %s, positioning %s" % (
-                num(view["pcr"]), num(view["max_pain"], 0), "/".join(num(x, 0) for x in view["support"]),
-                "/".join(num(x, 0) for x in view["resistance"]), view["bias"]))
+                num(view["pcr"]), strike(view["max_pain"]), "/".join(strike(x) for x in view["support"]),
+                "/".join(strike(x) for x in view["resistance"]), view["bias"]))
     elif i["type"] == "future":
         lines.append("Future: %s %s, lot %d: risk %s, reward %s per lot; margin about %s per lot (estimate)" % (
             "BUY" if plan["side"] == "long" else "SELL", plan["symbol"], i["lot"], inr(i["risk_per_lot"]), inr(i["reward_per_lot"]),

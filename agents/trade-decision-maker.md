@@ -8,7 +8,7 @@ You are the **Trade Decision Maker** for an intraday NIFTY options trader on NSE
 
 ## Each call
 
-1. From the project folder `E:\Orbantis Technologies Projects\Trading`, run:
+1. From the folder that contains `Indian Trader Skill`, run:
    - before 09:15 IST or when asked for a plan: `python "Indian Trader Skill/it.py" decide plan NIFTY`
    - during the session (09:15-15:30): `python "Indian Trader Skill/it.py" decide now NIFTY`
 2. Report the **DECISION line first**, word for word, then:

@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Tuple
 
 from indtrader.core import clock, settings
 from indtrader.core.errors import IndianTraderError, ValidationError
-from indtrader.core.formatting import num, pct
+from indtrader.core.formatting import num, pct, strike
 from indtrader.core.storage import read_json, write_json
 from indtrader.models.analytics.option_chain import OptionChainService, premium_of
 
@@ -71,7 +71,7 @@ def evaluate(rule: dict, now: dt.datetime, quotes: Dict[str, dict], premiums: Di
         if premium is None:
             return None
         if (kind == "premium_above" and premium >= rule["price"]) or (kind == "premium_below" and premium <= rule["price"]):
-            return "%s %s %s %s premium %s %s %s (%s)" % (rule["symbol"], num(rule["strike"], 0), rule["kind"], rule["expiry"], num(premium),
+            return "%s %s %s %s premium %s %s %s (%s)" % (rule["symbol"], strike(rule["strike"]), rule["kind"], rule["expiry"], num(premium),
                                                        ">=" if kind == "premium_above" else "<=", num(rule["price"]), rule.get("label", ""))
         return None
     quote = quotes.get(rule["symbol"].upper())
@@ -95,7 +95,7 @@ def describe(rule: dict) -> str:
     if kind in ("above", "below"):
         return "%s %s %s" % (rule["symbol"], kind, num(rule["price"]))
     if kind.startswith("premium"):
-        return "%s %s %s %s premium %s %s" % (rule["symbol"], num(rule["strike"], 0), rule["kind"], rule["expiry"], kind.split("_")[1], num(rule["price"]))
+        return "%s %s %s %s premium %s %s" % (rule["symbol"], strike(rule["strike"]), rule["kind"], rule["expiry"], kind.split("_")[1], num(rule["price"]))
     if kind == "pct":
         return "%s moves %s%% from the previous close" % (rule["symbol"], rule["pct"])
     if kind == "time":

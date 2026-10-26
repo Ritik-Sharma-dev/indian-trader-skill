@@ -7,19 +7,28 @@ from indtrader.core.formatting import pct
 
 
 def news(result: dict, now: dt.datetime) -> str:
-    lines = ["News for the last %d hours, as of %s IST. Watching: %s" % (
-        result["hours"], now.strftime("%d %b %H:%M"), ", ".join(result["tickers"]) or "market only")]
+    if result.get("dated"):
+        window = "from %s to %s" % (result["since"].strftime("%d %b %Y"), result["until"].strftime("%d %b %Y"))
+    else:
+        window = "for the last %d hours" % result["hours"]
+    lines = ["News %s, as of %s IST. Watching: %s" % (window, now.strftime("%d %b %H:%M"), ", ".join(result["tickers"]) or "market only")]
+    if result.get("terms"):
+        lines.append("Searched as: " + "; ".join("%s = %s" % (t, " / ".join(names)) for t, names in result["terms"].items()))
     if result["moves"]:
         lines.append("Today: " + "   ".join("%s %s (%s)" % (t, "%.2f" % q["price"] if q["price"] else "-", pct(q["change_pct"]))
                                           for t, q in result["moves"].items()))
     lines.append("")
     if not result["items"]:
-        lines.append("Nothing new.")
+        if result.get("found"):
+            lines.append("Nothing new (%d items in the window were already shown; --all shows them)." % result["found"])
+        else:
+            lines.append("No items found in the window.")
     for item in result["items"]:
         mood = "+" if item["sentiment"] > 0.2 else "-" if item["sentiment"] < -0.2 else " "
         tickers = (" [" + ",".join(item["tickers"]) + "]") if item["tickers"] else ""
         tags = (" {" + ",".join(item["tags"]) + "}") if item["tags"] else ""
-        lines.append("%s %s %s%s%s" % (item["time"].strftime("%d %b %H:%M"), mood, item["title"], tickers, tags))
+        similar = (" (+%d similar)" % item["similar"]) if item.get("similar") else ""
+        lines.append("%s %s %s%s%s%s" % (item["time"].strftime("%d %b %H:%M"), mood, item["title"], tickers, tags, similar))
         lines.append("      %s  %s" % (item["source"], item["link"][:110]))
     lines += ["note: " + error for error in result["errors"]]
     lines += ["", "+/- is a word-list mood score, not a verdict. Headlines are leads: open the story before acting."]

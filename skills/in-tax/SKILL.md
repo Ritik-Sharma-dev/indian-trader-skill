@@ -41,7 +41,7 @@ Never file anything, never give a final tax bill or a slab-rate figure, never te
 
 ## Ground rules (all Indian Trader skills)
 
-- Run commands from the project folder (`E:\Orbantis Technologies Projects\Trading`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
+- Run commands from the project folder (the one that contains `Indian Trader Skill`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
 - Output files go to `Indian Trader Skill/workspace/`.
 - There is **no broker connection**. Nothing here can place a real order.
 - This is arithmetic, not tax or financial advice. Check with a chartered accountant.

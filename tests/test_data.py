@@ -101,7 +101,8 @@ class TestOptionChain(WorkspaceTest):
         expiries = OptionChainService(self.market()).expiries("NIFTY")
         self.assertEqual(pick_expiry(expiries, self.moment, "next"), dt.date(2026, 11, 3))
         self.assertEqual(pick_expiry(expiries, self.moment, "monthly"), dt.date(2026, 10, 27))
-        self.assertEqual(pick_expiry(expiries, clock.parse_now("2026-10-27 15:31"), "near"), dt.date(2026, 11, 3))
+        self.assertEqual(pick_expiry(expiries, clock.parse_now("2026-10-27 15:35"), "near"), dt.date(2026, 10, 27))
+        self.assertEqual(pick_expiry(expiries, clock.parse_now("2026-10-27 15:41"), "near"), dt.date(2026, 11, 3))
         with self.assertRaises(ValidationError):
             OptionChainService(self.market()).expiries("SENSEX")
 

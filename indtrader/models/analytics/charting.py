@@ -13,15 +13,29 @@ The output describes the chart; it does not predict it.
 
 import datetime as dt
 import logging
+import re
 from typing import List, Optional
 
-from indtrader.core.errors import DataError
+from indtrader.core import clock
+from indtrader.core.errors import DataError, IndianTraderError
 from indtrader.core.formatting import num
 from indtrader.models.analytics import indicators as ind
 from indtrader.models.data import bars as barlib
+from indtrader.models.data.feeds import parse_time
 from indtrader.models.data.symbols import is_index
 
 log = logging.getLogger(__name__)
+
+DATA_CHECK_PCT = 0.2
+EVENT_FILINGS = re.compile(r"financial result|outcome of board meeting|\bresults?\b|acquisition|amalgamation|merger|scheme of arrangement"
+                           r"|resignation|insolvency|fraud|default", re.I)
+
+
+def _untraded(session: List[dict]) -> bool:
+    if len(session) < 6:
+        return False
+    traded = sum(1 for b in session if b["v"])
+    return traded < len(session) / 2 or len({b["c"] for b in session}) <= 3
 
 
 class ChartAnalyzer:
@@ -44,10 +58,36 @@ class ChartAnalyzer:
         result = {"symbol": symbol.upper(), "interval": interval, "as_of": None, "signals": [], "levels": {}}
         if minutes:
             self._intraday(result, symbol, bars, day, minutes, or_minutes)
+            last_close = bars[-1]["t"] + dt.timedelta(minutes=minutes)
         else:
             self._daily(result, bars)
+            self._check_daily(result, symbol, bars[-1])
+            last_close = clock.at(bars[-1]["t"].date(), clock.CLOSE)
+        if not day:
+            self._events_since(result, symbol, last_close, now)
         log.debug("%s %s: trend %s", symbol, interval, result["trend"])
         return result
+
+    def _events_since(self, out: dict, symbol: str, since: dt.datetime, now: dt.datetime) -> None:
+        """Results and other company events filed after the chart's last bar: the chart has not priced them yet."""
+        if is_index(symbol) or "." in symbol or now <= since:
+            return
+        try:
+            payload = self.market.nse.announcements(symbol.upper(), since.date(), now.date())
+        except IndianTraderError as exc:
+            log.info("no filings check for %s: %s", symbol, exc)
+            return
+        rows = payload if isinstance(payload, list) else (payload or {}).get("data") or []
+        events = []
+        for record in rows:
+            stamp = parse_time(record.get("sort_date") or record.get("an_dt"))
+            text = "%s %s" % (record.get("desc") or "", record.get("attchmntText") or "")
+            if stamp and since < stamp <= now and EVENT_FILINGS.search(text):
+                events.append({"time": stamp.strftime("%Y-%m-%d %H:%M"), "category": (record.get("desc") or "").strip()})
+        if events:
+            out["events_since"] = events
+            out["signals"].insert(0, "EVENT after the last bar: %s (filed %s IST). The chart does not reflect it yet." % (
+                events[0]["category"], events[0]["time"]))
 
     # -- intraday ----------------------------------------------------------------------
 
@@ -58,20 +98,33 @@ class ChartAnalyzer:
         day = day or days[-1]
         if day not in sessions:
             raise DataError("no %dm bars for %s on %s" % (minutes, symbol, day))
-        upto = [b for b in bars if b["t"].date() <= day]
         session = sessions[day]
+        trading = barlib.continuous(session) or session
+        upto = [b for b in barlib.continuous(bars) if b["t"].date() < day] + trading
         closes = [b["c"] for b in upto]
         ema9, ema21 = ind.ema(closes, 9), ind.ema(closes, 21)
         vwap, has_volume = ind.vwap(upto)
         st_line, st_dir = ind.supertrend(upto)
         rsi = ind.rsi(closes)
         atr = ind.atr(upto)
-        last = upto[-1]
+        last = session[-1]
+        complete = last["t"].time() >= dt.time(15, 25)
         out["as_of"] = (last["t"] + dt.timedelta(minutes=minutes)).isoformat(timespec="minutes")
-        out.update({"date": day.isoformat(), "last": last["c"], "open": session[0]["o"],
+        out.update({"date": day.isoformat(), "last": last["c"], "last_trade": trading[-1]["c"], "open": session[0]["o"],
                     "day_high": max(b["h"] for b in session), "day_low": min(b["l"] for b in session),
                     "ema9": ind.last(ema9), "ema21": ind.last(ema21), "vwap": vwap[-1], "vwap_has_volume": has_volume,
                     "supertrend": st_line[-1], "supertrend_dir": st_dir[-1], "rsi": rsi[-1], "atr": atr[-1]})
+        if len(trading) < len(session):
+            out["auction"] = {"close": last["c"], "last_trade": trading[-1]["c"],
+                              "last_trade_time": (trading[-1]["t"] + dt.timedelta(minutes=minutes)).strftime("%H:%M"),
+                              "move_pct": (last["c"] / trading[-1]["c"] - 1) * 100}
+        official = self.market.official_day(symbol, day) if complete else None
+        if official and official.get("close"):
+            out["official"] = official
+            reference = official["close"] if out.get("auction") else official.get("last")
+            out["data_check_pct"] = (last["c"] / reference - 1) * 100 if reference else None
+            out["data_check_against"] = reference
+            out["last"] = official["close"]
         opening = ind.opening_range(session, or_minutes, minutes)
         if opening:
             out["levels"]["or_high"], out["levels"]["or_low"] = opening[0], opening[1]
@@ -81,14 +134,28 @@ class ChartAnalyzer:
             high, low, close = max(b["h"] for b in prev), min(b["l"] for b in prev), prev[-1]["c"]
             out["prev_day"] = {"date": days[position - 1].isoformat(), "high": high, "low": low, "close": close}
             out["gap_pct"] = (session[0]["o"] / close - 1) * 100
-            out["change_pct"] = (last["c"] / close - 1) * 100
+            out["change_pct"] = (out["last"] / close - 1) * 100
             out["levels"].update({"pdh": high, "pdl": low, "pdc": close})
             out["pivots"] = ind.pivots(high, low, close)
-        if session[-1]["t"].time() >= dt.time(15, 25):
+        if complete:
             out["next_session"] = self._next_session_levels(symbol, out, session)
 
-        price = last["c"]
+        price = trading[-1]["c"]
         signals = out["signals"]
+        if has_volume and _untraded(trading):
+            out["trend"] = "untraded"
+            out["signals"] = ["too little trading for indicators: %d of %d bars traded, %d distinct prices" % (
+                sum(1 for b in trading if b["v"]), len(trading), len({b["c"] for b in trading}))]
+            out["series"] = {"bars": trading, "vwap": vwap[-len(trading):], "ema9": ema9[-len(trading):], "ema21": ema21[-len(trading):],
+                             "st": st_line[-len(trading):], "rsi": rsi[-len(trading):]}
+            return
+        if out.get("auction"):
+            a = out["auction"]
+            signals.append("closing auction set the close at %s (%+.2f%% vs the last continuous trade %s at %s); indicators are read at %s"
+                           % (num(a["close"]), a["move_pct"], num(a["last_trade"]), a["last_trade_time"], a["last_trade_time"]))
+        if out.get("data_check_pct") is not None and abs(out["data_check_pct"]) > DATA_CHECK_PCT:
+            signals.append("data check: the bars end at %s but NSE has %s (%+.2f%%); NSE's official close is %s"
+                           % (num(last["c"]), num(out["data_check_against"]), out["data_check_pct"], num(out["official"]["close"])))
         signals.append("price %s VWAP%s (%s)" % ("above" if price > vwap[-1] else "below",
                                                  "" if has_volume else " [TWAP: index has no volume]", num(vwap[-1])))
         if out["ema9"] and out["ema21"]:
@@ -107,8 +174,8 @@ class ChartAnalyzer:
             signals.append("CPR %s - %s (width %.2f%%: %s)" % (num(out["pivots"]["BC"]), num(out["pivots"]["TC"]), width, character))
         score = sum([price > vwap[-1], (out["ema9"] or 0) > (out["ema21"] or 0), (st_dir[-1] or 0) > 0]) * 2 - 3
         out["trend"] = "bullish" if score >= 3 else "bearish" if score <= -3 else "mixed"
-        tail = len(session)
-        out["series"] = {"bars": session, "vwap": vwap[-tail:], "ema9": ema9[-tail:], "ema21": ema21[-tail:],
+        tail = len(trading)
+        out["series"] = {"bars": trading, "vwap": vwap[-tail:], "ema9": ema9[-tail:], "ema21": ema21[-tail:],
                          "st": st_line[-tail:], "rsi": rsi[-tail:]}
 
     def _next_session_levels(self, symbol: str, out: dict, session: List[dict]) -> dict:
@@ -118,9 +185,22 @@ class ChartAnalyzer:
         official = self.market.official_index_quote(symbol) if is_index(symbol) else None
         if official and official.get("day_high") and abs(official["price"] - close) / close < 0.002:
             high, low, close = official["day_high"], official["day_low"], official["price"]
+        day = out.get("official")
+        if day and day.get("high") and day.get("low"):
+            high, low, close = day["high"], day["low"], day["close"]
         return {"high": high, "low": low, "close": close, "pivots": ind.pivots(high, low, close)}
 
     # -- daily --------------------------------------------------------------------------
+
+    def _check_daily(self, out: dict, symbol: str, bar: dict) -> None:
+        official = self.market.official_day(symbol, bar["t"].date())
+        if not (official and official.get("close")):
+            return
+        out["official"] = official
+        out["data_check_pct"] = (bar["c"] / official["close"] - 1) * 100
+        if abs(out["data_check_pct"]) > DATA_CHECK_PCT:
+            out["signals"].append("data check: the last daily bar closes at %s but NSE's official close is %s (%+.2f%%)"
+                                  % (num(bar["c"]), num(official["close"]), out["data_check_pct"]))
 
     @staticmethod
     def _daily(out: dict, bars: List[dict]) -> None:

@@ -24,7 +24,7 @@ from typing import Optional, Tuple
 
 from indtrader.core import clock
 from indtrader.core.errors import DataError, ValidationError
-from indtrader.core.formatting import num, round_tick
+from indtrader.core.formatting import num, round_tick, strike as strike_text
 from indtrader.models.analytics import blackscholes as bs
 from indtrader.models.analytics import indicators as ind
 from indtrader.models.analytics.option_chain import OptionChainAnalyzer, OptionChainService, pick_strike
@@ -110,7 +110,7 @@ def option_levels(pick: dict, underlying: dict, now: dt.datetime, hold_min: int,
     rate = cfg["risk_free_rate_pct"] / 100
     iv = pick.get("iv")
     if not iv:
-        raise DataError("no IV for %s %s; cannot estimate premium levels" % (num(pick["strike"], 0), pick["kind"]))
+        raise DataError("no IV for %s %s; cannot estimate premium levels" % (strike_text(pick["strike"]), pick["kind"]))
     strike, kind, tick = pick["strike"], pick["kind"], cfg["tick"]
     expiry_at = clock.expiry_close(expiry)
     years_now = clock.years_to(expiry_at, now)
@@ -205,7 +205,7 @@ class TradePlanner:
         premium = option_levels(pick, underlying, now, request.hold, self.cfg, chain["expiry"])
         plan["instrument"].update({
             "kind": kind, "strike": pick["strike"], "expiry": chain["expiry"].isoformat(), "lot": lot,
-            "tradingsymbol": "%s %s %s %s" % (symbol, chain["expiry"].strftime("%d%b%y").upper(), num(pick["strike"], 0), kind),
+            "tradingsymbol": "%s %s %s %s" % (symbol, chain["expiry"].strftime("%d%b%y").upper(), strike_text(pick["strike"]), kind),
             "premium": premium, "iv": pick["iv"], "delta": pick["delta"], "theta": pick["theta"],
             "spread_pct": pick["spread_pct"], "oi": pick["oi"], "volume": pick["volume"], "bid": pick["bid"], "ask": pick["ask"],
             "spot_at_pick": analysis["spot"], "risk_per_lot": round(premium["risk"] * lot, 2),

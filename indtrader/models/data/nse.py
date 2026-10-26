@@ -19,6 +19,8 @@ log = logging.getLogger(__name__)
 
 API = "https://www.nseindia.com/api/"
 ARCHIVES = "https://nsearchives.nseindia.com/content/"
+PRODUCTS = "https://nsearchives.nseindia.com/products/content/"
+BHAV_SERIES = ("EQ", "BE", "BZ", "SM", "ST")
 
 INDEX_LISTS: Dict[str, str] = {
     "nifty50": "ind_nifty50list.csv", "nifty100": "ind_nifty100list.csv",
@@ -46,6 +48,54 @@ def parse_lots(raw: str) -> Dict[str, dict]:
     return out
 
 
+def _bhav_number(text: str) -> Optional[float]:
+    try:
+        return float(text.strip().replace(",", ""))
+    except (AttributeError, ValueError):
+        return None
+
+
+def parse_bhavcopy(raw: str) -> Dict[str, dict]:
+    """sec_bhavdata_full_DDMMYYYY.csv -> ``{SYMBOL: {...}}``; ``close`` is official, ``last`` the last trade."""
+    out: Dict[str, dict] = {}
+    rank: Dict[str, int] = {}
+    for record in csv.DictReader(io.StringIO(raw)):
+        record = {(k or "").strip(): (v or "").strip() for k, v in record.items()}
+        symbol, series = record.get("SYMBOL", "").upper(), record.get("SERIES", "").upper()
+        if not symbol or series not in BHAV_SERIES:
+            continue
+        order = BHAV_SERIES.index(series)
+        if symbol in rank and rank[symbol] <= order:
+            continue
+        rank[symbol] = order
+        try:
+            day = dt.datetime.strptime(record.get("DATE1", ""), "%d-%b-%Y").date().isoformat()
+        except ValueError:
+            day = None
+        out[symbol] = {"symbol": symbol, "series": series, "date": day, "prev_close": _bhav_number(record.get("PREV_CLOSE")),
+                       "open": _bhav_number(record.get("OPEN_PRICE")), "high": _bhav_number(record.get("HIGH_PRICE")),
+                       "low": _bhav_number(record.get("LOW_PRICE")), "last": _bhav_number(record.get("LAST_PRICE")),
+                       "close": _bhav_number(record.get("CLOSE_PRICE")), "avg_price": _bhav_number(record.get("AVG_PRICE")),
+                       "volume": _bhav_number(record.get("TTL_TRD_QNTY")), "delivery_pct": _bhav_number(record.get("DELIV_PER")),
+                       "source": "NSE bhavcopy"}
+    return out
+
+
+def parse_symbol_changes(raw: str) -> List[dict]:
+    """symbolchange.csv -> ``[{old, new, date, name}]``, oldest first."""
+    out = []
+    for row in csv.reader(io.StringIO(raw)):
+        cells = [c.strip() for c in row]
+        if len(cells) < 4 or not cells[1] or cells[1].upper() == "OLD SYMBOL":
+            continue
+        try:
+            day = dt.datetime.strptime(cells[3], "%d-%b-%Y").date()
+        except ValueError:
+            continue
+        out.append({"name": cells[0], "old": cells[1].upper(), "new": cells[2].upper(), "date": day})
+    return sorted(out, key=lambda r: r["date"])
+
+
 class NseClient:
     def __init__(self, http: HttpClient) -> None:
         self.http = http
@@ -66,6 +116,11 @@ class NseClient:
 
     def lot_size_csv(self) -> str:
         return self.http.text(ARCHIVES + "fo/fo_mktlots.csv", name="fo_mktlots.csv", nse=True)
+
+    def bhavcopy(self, day: dt.date) -> str:
+        """The official end-of-day file for every equity, cached a week."""
+        name = "sec_bhavdata_full_%s.csv" % day.strftime("%d%m%Y")
+        return self.http.text(PRODUCTS + name, name=name, nse=True, ttl=7 * 86400)
 
     def index_members(self, list_name: str) -> List[dict]:
         """``[{symbol, name, industry}]`` for an NSE index list (cached a day)."""
@@ -146,6 +201,10 @@ class NseClient:
     def equity_list(self) -> str:
         """EQUITY_L.csv: every listed NSE equity (symbol, name, ISIN), cached a day."""
         return self.http.text(ARCHIVES + "equities/EQUITY_L.csv", name="EQUITY_L.csv", nse=True, ttl=86400)
+
+    def symbol_changes(self) -> str:
+        """symbolchange.csv: old symbol, new symbol and the date, cached a day."""
+        return self.http.text(ARCHIVES + "equities/symbolchange.csv", name="symbolchange.csv", nse=True, ttl=86400)
 
     def sast_filings(self, start: dt.date, end: dt.date) -> List[dict]:
         """SEBI takeover-code Reg 29 disclosures: crossing 5 %, and each 2 % change after that."""

@@ -21,13 +21,14 @@ from typing import Callable, Dict, List, Optional, Tuple
 from indtrader.core import clock, settings
 from indtrader.core.context import AppContext
 from indtrader.core.errors import DataError, IndianTraderError
-from indtrader.core.formatting import num
+from indtrader.core.formatting import num, strike
 from indtrader.core.storage import read_json, write_json
 from indtrader.models.agents.live_monitor.engine import LiveEngine, new_state
 from indtrader.models.agents.live_monitor.strategy import STEP, daily_regime
 from indtrader.models.analytics.option_chain import OptionChainAnalyzer, OptionChainService, pick_strike
 from indtrader.models.data import bars as barlib
-from indtrader.models.data.symbols import safe_name
+from indtrader.models.data.symbols import is_index, safe_name
+from indtrader.models.trading.charges import charges
 from indtrader.models.trading.planner import option_levels
 
 log = logging.getLogger(__name__)
@@ -66,12 +67,31 @@ def stats(trades: List[dict]) -> Optional[dict]:
     by_setup: Dict[Tuple[str, str], List[float]] = {}
     for trade in trades:
         by_setup.setdefault((trade["setup"], trade["side"]), []).append(trade["r"])
-    return {"trades": len(trades), "wins": len(wins), "win_rate": len(wins) / len(trades),
-            "total_r": round(sum(r_values), 2), "avg_r": round(sum(r_values) / len(r_values), 3), "max_dd_r": round(drawdown, 2),
-            "total_points": round(sum(t["points"] for t in trades), 1),
-            "by_setup": {"%s %s" % key: {"n": len(v), "avg_r": round(sum(v) / len(v), 2), "total_r": round(sum(v), 2)}
-                         for key, v in by_setup.items()},
-            "exits": {reason: sum(1 for t in trades if t["exit_reason"] == reason) for reason in sorted({t["exit_reason"] for t in trades})}}
+    out = {"trades": len(trades), "wins": len(wins), "win_rate": len(wins) / len(trades),
+           "total_r": round(sum(r_values), 2), "avg_r": round(sum(r_values) / len(r_values), 3), "max_dd_r": round(drawdown, 2),
+           "total_points": round(sum(t["points"] for t in trades), 1),
+           "by_setup": {"%s %s" % key: {"n": len(v), "avg_r": round(sum(v) / len(v), 2), "total_r": round(sum(v), 2)}
+                        for key, v in by_setup.items()},
+           "exits": {reason: sum(1 for t in trades if t["exit_reason"] == reason) for reason in sorted({t["exit_reason"] for t in trades})}}
+    if all("net_r" in t for t in trades):
+        out.update(total_net_r=round(sum(t["net_r"] for t in trades), 2), avg_net_r=round(sum(t["net_r"] for t in trades) / len(trades), 3),
+                   net_wins=sum(1 for t in trades if t["net_points"] > 0), net_rupees=round(sum(t["net_rupees"] for t in trades), 2),
+                   charges=round(sum(t["charges"] for t in trades), 2))
+    return out
+
+
+def with_charges(trades: List[dict], cfg: dict) -> List[dict]:
+    """Stock trades sized to ``max_loss_per_trade`` (capped by intraday buying power), net of equity-intraday charges."""
+    for trade in trades:
+        qty = max(1, int(cfg["max_loss_per_trade"] / trade["risk"] + 1e-9)) if trade["risk"] > 0 else 1
+        qty = max(1, min(qty, int(cfg["capital"] * cfg["equity_intraday_leverage"] // trade["entry"])))
+        entry_value, exit_value = trade["entry"] * qty, trade["exit"] * qty
+        buy, sell = (entry_value, exit_value) if trade["side"] == "long" else (exit_value, entry_value)
+        cost = charges("equity_intraday", buy, sell, cfg)["total"]
+        net = trade["points"] - cost / qty
+        trade.update(qty=qty, charges=cost, net_points=round(net, 2), net_r=round(net / trade["risk"], 2) if trade["risk"] else 0.0,
+                     net_rupees=round(net * qty, 2))
+    return trades
 
 
 class LiveMonitor:
@@ -129,7 +149,7 @@ class LiveMonitor:
             pick = pick_strike(analysis, kind, "atm")
             levels = option_levels(pick, {"entry": trade["entry"], "stop": trade["init_stop"], "target": trade["target"]},
                                    now, 30, self.ctx.cfg, chain["expiry"])
-            return {"tradingsymbol": "%s %s %s %s" % (symbol, chain["expiry"].strftime("%d%b%y").upper(), num(pick["strike"], 0), kind),
+            return {"tradingsymbol": "%s %s %s %s" % (symbol, chain["expiry"].strftime("%d%b%y").upper(), strike(pick["strike"]), kind),
                     "lot": lot, "premium_now": pick["premium"], "bid": pick["bid"], "ask": pick["ask"],
                     "premium_stop": levels["stop"], "premium_target": levels["target"],
                     "risk_per_lot": round((pick["premium"] - levels["stop"]) * lot, 2),
@@ -218,9 +238,13 @@ class LiveMonitor:
     def backtest(self, symbol: str, sessions: int = 40) -> Tuple[List[dt.date], List[dict]]:
         _, bars = self.market.candles(symbol, "5m", "60d")
         days = [d for d, s in sorted(barlib.by_session(bars).items()) if len(s) >= 70][2:][-sessions:]
+        if not days:
+            raise DataError("no full 5-minute sessions for %s (a session needs 70 bars; is it thinly traded?)" % symbol.upper())
         trades = []
         for day in days:
             state, _ = self.replay_day(symbol, day)
             trades += [dict(t, date=day.isoformat()) for t in state["trades"]]
+        if not is_index(symbol):
+            with_charges(trades, self.ctx.cfg)
         log.info("live backtest %s: %d trades over %d sessions", symbol, len(trades), len(days))
         return days, trades

@@ -17,7 +17,7 @@ class TestAccuracy(WorkspaceTest):
         # NSE's chain IVs = Black-Scholes on spot, 10% rate, calendar time from the close
         moment = self.now("2026-10-22 23:25")
         chain = OptionChainService(self.market()).fetch("NIFTY", moment)
-        self.assertEqual(chain_time(chain, moment), clock.parse_now("2026-10-22 15:30"))
+        self.assertEqual(chain_time(chain, moment), clock.parse_now("2026-10-22 15:40"))
         years = clock.years_to(clock.expiry_close(chain["expiry"]), chain_time(chain, moment))
         atm = next(i for i, r in enumerate(chain["rows"]) if r["strike"] == 22700)
         gaps = []

@@ -108,6 +108,8 @@ def _news(command) -> None:
     p.add_argument("--only-mine", action="store_true", help="only items that mention your tickers")
     p.add_argument("--no-nse", action="store_true")
     p.add_argument("--no-moves", action="store_true")
+    p.add_argument("--since", help="from this day, YYYY-MM-DD (instead of --hours); shows items already seen")
+    p.add_argument("--until", help="to this day, YYYY-MM-DD (with --since)")
     p.add_argument("--limit", type=int, default=40)
     p = command("movers", news.movers, "NSE filings ranked by today's move")
     p.add_argument("--hours", type=int, default=24)

@@ -12,6 +12,7 @@ python "Indian Trader Skill/it.py" news --tickers RELIANCE HDFCBANK --hours 24
 python "Indian Trader Skill/it.py" news --market-only --hours 12          # market feeds only
 python "Indian Trader Skill/it.py" news --only-mine                       # only items naming your tickers
 python "Indian Trader Skill/it.py" news --all --peek                      # include already-seen items, do not mark them
+python "Indian Trader Skill/it.py" news --tickers NCC --since 2026-10-12 --until 2026-10-18 --stocks-only   # a past week
 python "Indian Trader Skill/it.py" movers --hours 24                      # NSE filings x today's move, F&O stocks (add --any for all)
 python "Indian Trader Skill/it.py" policy --hours 24                      # RBI, SEBI, NSE circulars, ET / BS economy: new rules and implementations
 python "Indian Trader Skill/it.py" policy --only fno-rules ban-surveillance rbi-rates
@@ -29,11 +30,14 @@ python "Indian Trader Skill/it.py" global headlines --hours 18            # US /
 ## Reading it
 
 - `+` / `-` is a word-list mood score, a pointer only. Tags are keyword rules.
+- "Searched as" shows the names used for each company: its NSE name, the shortest start of it no other listed company shares, and brand-like symbols, current or former (from NSE's symbol-change file: ETERNAL is also searched as Zomato). Stories about the company's own web pages, its funds, another listed code or a namesake abroad (`NCC Group PLC`) are untagged.
+- `(+N similar)`: reworded copies of the same story were merged into one line.
+- Every fetched item is kept in `workspace/news/archive.sqlite`; `--since` / `--until` read a past window from the archive and from a dated Google News search.
 - State: `workspace/state/news.json` remembers seen items for 30 days. Times are IST.
 
 ## Ground rules (all Indian Trader skills)
 
-- Run commands from the project folder (`E:\Orbantis Technologies Projects\Trading`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
+- Run commands from the project folder (the one that contains `Indian Trader Skill`): `python "Indian Trader Skill/it.py" ...`. Python 3.8+, nothing to install.
 - All times are IST. Output files go to `Indian Trader Skill/workspace/` (config, watchlist, entry, plan, orders, paper journal, charts, briefs).
 - There is **no broker connection**. Nothing here can place a real order. The paper journal opens a trade only after `/in-risk` passes it AND the user says yes to that exact order.
 - Data is free and unofficial (NSE website APIs, Yahoo Finance, RSS). It can lag or fail; say so when it does and never invent numbers.
